@@ -1,12 +1,15 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
+import zeep
 
 from arca_client import (
     WSAA,
     WSFE,
+    ArcaError,
     CbteTipo,
     Concepto,
     CondicionIVAReceptor,
@@ -15,6 +18,20 @@ from arca_client import (
     WSFEError,
 )
 from arca_client.wsaa.ticket import AccessTicket
+
+# Tipos del WSDL real de WSFEv1: si un nombre de campo no existe, zeep lanza TypeError.
+WSDL = Path(__file__).parent / "fixtures" / "wsfev1.wsdl"
+_ZEEP = zeep.Client(str(WSDL))
+
+
+def _t(name, **kwargs):
+    return _ZEEP.get_type(f"ns0:{name}")(**kwargs)
+
+
+def _array(kind, items):
+    if not items:
+        return None
+    return _t(f"ArrayOf{kind}", **{kind: [_t(kind, Code=c, Msg=m) for c, m in items]})
 
 
 class FakeService:
@@ -27,30 +44,39 @@ class FakeService:
 
     def FECompUltimoAutorizado(self, Auth, PtoVta, CbteTipo):
         self.requests.append(("ultimo", Auth, PtoVta, CbteTipo))
-        return NS(PtoVta=PtoVta, CbteTipo=CbteTipo, CbteNro=self.last, Errors=None)
+        return _t("FERecuperaLastCbteResponse", PtoVta=PtoVta, CbteTipo=CbteTipo, CbteNro=self.last)
 
     def FECAESolicitar(self, Auth, FeCAEReq):
         self.requests.append(("cae", Auth, FeCAEReq))
         det = FeCAEReq["FeDetReq"]["FECAEDetRequest"][0]
-        obs = NS(Observaciones=[NS(Code=c, Msg=m) for c, m in self.obs]) if self.obs else None
-        errors = NS(Err=[NS(Code=c, Msg=m) for c, m in self.errores]) if self.errores else None
         aprobado = self.resultado == "A"
-        return NS(
-            FeCabResp=NS(Resultado=self.resultado),
-            FeDetResp=NS(
-                FEDetResponse=[
-                    NS(
-                        CbteDesde=det["CbteDesde"],
-                        CbteFch=det["CbteFch"],
-                        Resultado=self.resultado,
-                        CAE="76123456789012" if aprobado else None,
-                        CAEFchVto="20261029" if aprobado else None,
-                        Obs=obs,
-                    )
-                ]
+        detalle = _t(
+            "FECAEDetResponse",
+            Concepto=det["Concepto"],
+            DocTipo=det["DocTipo"],
+            DocNro=det["DocNro"],
+            CbteDesde=det["CbteDesde"],
+            CbteHasta=det["CbteHasta"],
+            CbteFch=det["CbteFch"],
+            Resultado=self.resultado,
+            Observaciones=_array("Obs", self.obs),
+            CAE="76123456789012" if aprobado else "",
+            CAEFchVto="20261029" if aprobado else "",
+        )
+        return _t(
+            "FECAEResponse",
+            FeCabResp=_t(
+                "FECAECabResponse",
+                Cuit=Auth["Cuit"],
+                PtoVta=FeCAEReq["FeCabReq"]["PtoVta"],
+                CbteTipo=FeCAEReq["FeCabReq"]["CbteTipo"],
+                FchProceso="20261019201144",
+                CantReg=1,
+                Resultado=self.resultado,
+                Reproceso="N",
             ),
-            Errors=errors,
-            Events=None,
+            FeDetResp=_t("ArrayOfFECAEDetResponse", FECAEDetResponse=[detalle]),
+            Errors=_array("Err", self.errores),
         )
 
 
@@ -149,11 +175,63 @@ def test_aprobado_con_observaciones(wsfe):
 
 def test_last_voucher_number_error(wsfe):
     def fail(**kwargs):
-        return NS(CbteNro=0, Errors=NS(Err=[NS(Code=601, Msg="CUIT representada no incluida")]))
+        return _t(
+            "FERecuperaLastCbteResponse",
+            CbteNro=0,
+            Errors=_array("Err", [(601, "CUIT representada no incluida")]),
+        )
 
     wsfe.fake.FECompUltimoAutorizado = fail
     with pytest.raises(WSFEError, match="601"):
         wsfe.last_voucher_number(1, CbteTipo.FACTURA_C)
+
+
+def test_respuesta_real_de_homologacion(wsfe):
+    """Estructura de una respuesta real de wswhomo (comprobante aprobado), con datos ficticios."""
+    real = _t(
+        "FECAEResponse",
+        FeCabResp=_t(
+            "FECAECabResponse",
+            Cuit=20123456780,
+            PtoVta=1,
+            CbteTipo=11,
+            FchProceso="20261019201144",
+            CantReg=1,
+            Resultado="A",
+            Reproceso="N",
+        ),
+        FeDetResp=_t(
+            "ArrayOfFECAEDetResponse",
+            FECAEDetResponse=[
+                _t(
+                    "FECAEDetResponse",
+                    Concepto=1,
+                    DocTipo=99,
+                    DocNro=0,
+                    CbteDesde=2,
+                    CbteHasta=2,
+                    CbteFch="20261019",
+                    Resultado="A",
+                    Observaciones=None,
+                    CAE="70000000000001",
+                    CAEFchVto="20261029",
+                )
+            ],
+        ),
+    )
+    wsfe.fake.last = 1
+    wsfe.fake.FECAESolicitar = lambda **kwargs: real
+    factura = wsfe.create_invoice_c(1, "1000.00")
+    assert factura.numero == 2
+    assert factura.cae == "70000000000001"
+    assert factura.cae_vencimiento == date(2026, 10, 29)
+
+
+def test_respuesta_irreconocible_no_se_reporta_como_rechazo(wsfe):
+    wsfe.fake.FECAESolicitar = lambda **kwargs: NS(FeDetResp=None, Errors=None, Events=None)
+    with pytest.raises(ArcaError, match="podría haber sido autorizado") as exc:
+        wsfe.create_invoice_c(1, 10)
+    assert not isinstance(exc.value, WSFEError)
 
 
 @pytest.mark.parametrize(

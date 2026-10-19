@@ -158,11 +158,19 @@ class WSFE:
 def _parse_cae_response(result, **datos) -> ComprobanteAutorizado:
     errores = _mensajes(result, "Errors", "Err")
     eventos = _mensajes(result, "Events", "Evt")
-    detalles = getattr(getattr(result, "FeDetResp", None), "FEDetResponse", None) or []
+    detalles = getattr(getattr(result, "FeDetResp", None), "FECAEDetResponse", None) or []
     det = detalles[0] if detalles else None
-    observaciones = _mensajes(det, "Obs", "Observaciones") if det is not None else []
+    observaciones = _mensajes(det, "Observaciones", "Obs") if det is not None else []
 
-    if det is None or det.Resultado != "A" or errores:
+    if det is None:
+        if errores:
+            raise WSFEError(errores)
+        # Nunca reportar como rechazo algo que no pudimos interpretar: puede estar autorizado.
+        raise ArcaError(
+            "Respuesta de FECAESolicitar sin detalle reconocible; el comprobante podría "
+            f"haber sido autorizado. Verificalo antes de reintentar. Respuesta: {result!r}"
+        )
+    if det.Resultado != "A" or not det.CAE:
         raise WSFEError(errores, observaciones)
 
     return ComprobanteAutorizado(
