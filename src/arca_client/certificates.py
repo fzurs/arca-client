@@ -80,3 +80,12 @@ def write_private(path: Path, data: bytes) -> None:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as f:
         f.write(data)
+
+
+def cuit_from_certificate(cert: x509.Certificate) -> str | None:
+    """Extrae la CUIT del campo serialNumber del DN (``CUIT 20123456786``)."""
+    for attr in cert.subject.get_attributes_for_oid(NameOID.SERIAL_NUMBER):
+        match = re.fullmatch(r"CUIT\s*(\d{11})", str(attr.value).strip())
+        if match:
+            return match.group(1)
+    return None

@@ -16,3 +16,6 @@ dist/
 .ta_cache/
 certs/
 .env
+
+# PDFs generados por los ejemplos
+factura_C_*.pdf

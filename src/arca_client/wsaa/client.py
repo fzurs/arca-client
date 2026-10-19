@@ -1,32 +1,19 @@
 """Cliente del Web Service de Autenticación y Autorización (WSAA)."""
 
 import os
-import ssl
 from datetime import datetime, timezone
 
-import requests
 import zeep
 from cryptography.hazmat.primitives import hashes
-from requests.adapters import HTTPAdapter
 from zeep.exceptions import Fault
-from zeep.transports import Transport
 
 from ..environments import Environment, wsaa_wsdl
 from ..exceptions import ArcaError, WSAAError
+from ..transport import make_transport
 from .cache import FileTicketCache, TicketCache
 from .signer import load_certificate, load_private_key, sign_tra
 from .ticket import AccessTicket
 from .tra import build_tra
-
-
-class _LowSecurityAdapter(HTTPAdapter):
-    """wsaahomo usa una clave DH chica que OpenSSL 3 rechaza (DH_KEY_TOO_SMALL)."""
-
-    def init_poolmanager(self, *args, **kwargs):
-        ctx = ssl.create_default_context()
-        ctx.set_ciphers("DEFAULT@SECLEVEL=1")
-        kwargs["ssl_context"] = ctx
-        return super().init_poolmanager(*args, **kwargs)
 
 
 def _read(value: bytes | str | os.PathLike) -> bytes:
@@ -101,10 +88,7 @@ class WSAA:
 
     def _client(self) -> zeep.Client:
         if self._soap is None:
-            session = requests.Session()
-            if self.env is Environment.HOMOLOGACION:
-                session.mount("https://", _LowSecurityAdapter())
-            transport = Transport(session=session, timeout=self.timeout)
+            transport = make_transport(self.env, self.timeout)
             self._soap = zeep.Client(wsaa_wsdl(self.env), transport=transport)
         return self._soap
 

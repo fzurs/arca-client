@@ -18,3 +18,21 @@ class WSAAError(ArcaError):
     def retryable(self) -> bool:
         """Según la spec, solo `wsaa.*` y `wsn.unavailable` admiten reintento (tras 60 s)."""
         return self.code.startswith("wsaa.") or self.code == "wsn.unavailable"
+
+
+class WSFEError(ArcaError):
+    """WSFE rechazó el pedido.
+
+    `errores` son los ``<Errors>`` generales y `observaciones` los ``<Obs>`` del
+    comprobante; ambos son listas de :class:`arca_client.wsfe.Mensaje`.
+    """
+
+    def __init__(self, errores: list, observaciones: list | None = None):
+        self.errores = errores
+        self.observaciones = observaciones or []
+        detalle = "; ".join(str(m) for m in [*self.errores, *self.observaciones])
+        super().__init__(detalle or "WSFE rechazó el comprobante sin detalle")
+
+    @property
+    def codes(self) -> list[int]:
+        return [m.code for m in [*self.errores, *self.observaciones]]

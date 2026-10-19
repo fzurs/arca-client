@@ -2,12 +2,13 @@
 
 Cliente Python para los web services SOAP de **ARCA** (ex AFIP).
 
-Estado actual: **autenticación (WSAA)**. Los servicios de negocio (WSFE, padrón, etc.) vendrán después.
+Estado actual: **autenticación (WSAA)** y **Factura C (WSFEv1)** para monotributistas.
 
 ## Instalación
 
 ```bash
-uv sync
+uv sync                 # desarrollo
+pip install arca-client[pdf]   # como dependencia, con generación de PDF
 ```
 
 ## Requisitos previos: certificado
@@ -81,13 +82,90 @@ wsaa = WSAA(cert, key, cache=MemoryTicketCache())
 
 `MemoryTicketCache` pierde el TA cuando termina el proceso, así que solo conviene para tests o para un proceso que corre de forma permanente.
 
+## Factura electrónica (WSFEv1)
+
+Por ahora solo **Factura C** (`CbteTipo 11`), es decir, comprobantes de monotributistas sin IVA discriminado.
+
+```python
+from datetime import date
+from arca_client import WSAA, WSFE, Concepto, CondicionIVAReceptor, DocTipo, Environment
+
+wsaa = WSAA("cert.crt", "private.key", Environment.HOMOLOGACION)
+wsfe = WSFE(wsaa)  # la CUIT emisora se toma del certificado (o pasala con cuit=...)
+
+# Consumidor final sin identificar, venta de productos
+factura = wsfe.create_invoice_c(punto_venta=1, importe_total="1500.00")
+print(factura.numero, factura.cae, factura.cae_vencimiento)
+
+# Servicios a un receptor identificado
+wsfe.create_invoice_c(
+    punto_venta=1,
+    importe_total="25000.00",
+    concepto=Concepto.SERVICIOS,
+    doc_tipo=DocTipo.CUIT,
+    doc_nro=30712345671,
+    condicion_iva_receptor=CondicionIVAReceptor.IVA_RESPONSABLE_INSCRIPTO,
+    servicio_desde=date(2026, 10, 1),
+    servicio_hasta=date(2026, 10, 31),
+)
+```
+
+`create_invoice_c`:
+
+- Consulta el último número autorizado (`FECompUltimoAutorizado`) y usa el siguiente.
+- Arma el comprobante C: `ImpNeto` = `ImpTotal`, IVA, exento y no gravado en 0, sin array de IVA, moneda `PES`.
+- Informa la condición frente al IVA del receptor (obligatoria, RG 5616). Para consumidor final se completa sola; con un receptor identificado hay que indicarla.
+- Valida localmente lo básico: importe positivo con hasta 2 decimales (como `Decimal`, `int` o `str`, nunca `float`), documento y período de servicio.
+- Devuelve un `ComprobanteAutorizado` con el CAE y su vencimiento. Si el comprobante se rechaza, lanza `WSFEError` con los `errores` y `observaciones` de ARCA (los códigos están en `e.codes`).
+
+Ejemplo de línea de comandos:
+
+```bash
+ARCA_CERT=cert.crt ARCA_KEY=private.key uv run python examples/factura_c.py 1500.00 1
+```
+
+### PDF con código QR
+
+ARCA no ofrece un servicio para generar el PDF de las facturas emitidas por web service: lo tiene que generar el emisor. `render_invoice_pdf` arma la representación impresa de la Factura C con el código QR obligatorio (RG 4892). Requiere el extra `pdf` (`fpdf2` y `segno`).
+
+```python
+from datetime import date
+from pathlib import Path
+from arca_client import Emisor, Item, Receptor, render_invoice_pdf
+
+emisor = Emisor(
+    razon_social="Juan Pérez",
+    domicilio="Av. Corrientes 1234, CABA",
+    inicio_actividades=date(2020, 3, 1),
+    ingresos_brutos="20-12345678-6",
+)
+items = [
+    Item("Diseño de logotipo", "18000.00", codigo="D01"),
+    Item("Horas de soporte", "2550.00", cantidad=3, unidad="horas", bonificacion="10"),
+]
+pdf = render_invoice_pdf(factura, emisor, items, Receptor("Empresa S.A.", "San Martín 500"))
+Path("factura.pdf").write_bytes(pdf)
+```
+
+- La suma de los ítems tiene que coincidir con el importe autorizado; si no, se lanza `ValueError`. Para no calcularlo a mano, autorizá con `importe_total=sum(i.subtotal for i in items)`.
+- `bonificacion` es un porcentaje de descuento (0 a 100) por ítem. Si algún ítem tiene descuento, la tabla agrega las columnas "% Bonif" e "Imp. Bonif.", y el subtotal del ítem ya lo tiene aplicado.
+- Si la condición frente al IVA del receptor es consumidor final, se imprime la leyenda "A CONSUMIDOR FINAL" (RG 1415, Anexo II).
+- El documento y la condición frente al IVA del receptor, el período de servicio y el CAE salen del `ComprobanteAutorizado`.
+- `copias=("ORIGINAL", "DUPLICADO")` genera una copia por cada etiqueta. Si los ítems no entran en una hoja, se pagina y cada hoja lleva el número de comprobante y "Pág. X/Y".
+- `qr_url(factura)` devuelve solo el texto del QR (`https://www.arca.gob.ar/fe/qr/?p=...`), por si querés armar tu propio diseño.
+
+Para facturar se necesita autorizar el certificado también al servicio `wsfe` (en homologación, desde WSASS). En producción, además, hace falta un punto de venta habilitado para web services.
+
 ### Errores
 
 Los SoapFault del WSAA se convierten en `WSAAError`, con `code` (ej. `cms.cert.expired`) y `retryable`. Según la especificación, solo se puede reintentar ante `wsaa.*` y `wsn.unavailable`.
 
 ## Limitaciones conocidas
 
-- **`examples/login.py` no admite claves privadas con contraseña.** Si la clave se generó con contraseña (por ejemplo, eligiendo esa opción en `arca-setup`), el script falla al cargarla. La librería sí lo soporta con `WSAA(..., key_password=b"...")`; lo que falta es exponerlo en el ejemplo, ya sea con una variable `ARCA_KEY_PASSWORD` o pidiéndola por teclado.
+- **Los ejemplos (`examples/login.py` y `examples/factura_c.py`) no admiten claves privadas con contraseña.** Si la clave se generó con contraseña (por ejemplo, eligiendo esa opción en `arca-setup`), los scripts fallan al cargarla. La librería sí lo soporta con `WSAA(..., key_password=b"...")`; lo que falta es exponerlo en el ejemplo, ya sea con una variable `ARCA_KEY_PASSWORD` o pidiéndola por teclado.
+- **Numeración no concurrente.** `create_invoice_c` calcula el número como último + 1. Si dos procesos facturan al mismo tiempo en el mismo punto de venta, uno de los dos va a ser rechazado (error 10016) y hay que reintentarlo.
+- **Sin recuperación ante cortes.** Si la conexión se corta después de enviar `FECAESolicitar`, no se sabe si ARCA autorizó el comprobante. Falta implementar la consulta con `FECompConsultar` para verificarlo antes de reintentar; si no se verifica, se puede terminar emitiendo un comprobante duplicado.
+- **PDF solo con caracteres Latin-1.** El PDF usa las fuentes estándar (Helvetica), que cubren el español (á, ñ, ü, °) pero no emojis ni otros alfabetos: esos caracteres se reemplazan por `?`.
 
 ## Desarrollo
 
