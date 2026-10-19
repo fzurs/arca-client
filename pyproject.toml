@@ -1,0 +1,33 @@
+[project]
+name = "arca-client"
+version = "0.1.0"
+description = "Cliente Python para los web services de ARCA (ex AFIP)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "cryptography>=42",
+    "lxml>=5",
+    "requests>=2.31",
+    "zeep>=4.2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/arca_client"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
