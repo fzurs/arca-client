@@ -12,6 +12,7 @@ from arca_client import WSAA, Environment
 service = sys.argv[1] if len(sys.argv) > 1 else "wsfe"
 env = Environment(os.environ.get("ARCA_ENV", "homologacion"))
 
+# TODO: soportar claves con contraseña (ver "Limitaciones conocidas" en el README).
 wsaa = WSAA(os.environ["ARCA_CERT"], os.environ["ARCA_KEY"], env)
 ticket = wsaa.get_ticket(service)
 
@@ -20,3 +21,4 @@ print(f"Generado:   {ticket.generation_time}")
 print(f"Expira:     {ticket.expiration_time}")
 print(f"Token:      {ticket.token[:40]}...")
 print(f"Sign:       {ticket.sign[:40]}...")
+print(f"Caché:      {wsaa.cache.directory}")

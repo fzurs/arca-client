@@ -12,6 +12,9 @@ dependencies = [
     "zeep>=4.2",
 ]
 
+[project.scripts]
+arca-setup = "arca_client.setup_wizard:main"
+
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
 

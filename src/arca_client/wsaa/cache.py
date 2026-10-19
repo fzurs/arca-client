@@ -30,11 +30,25 @@ class MemoryTicketCache:
         self._tickets[key] = ticket
 
 
-class FileTicketCache:
-    """Guarda cada TA como JSON en `directory` (por defecto ``.ta_cache/``)."""
+def default_cache_dir() -> Path:
+    """Ruta fija, independiente del directorio de trabajo.
 
-    def __init__(self, directory: str | os.PathLike = ".ta_cache") -> None:
-        self.directory = Path(directory)
+    Orden: ``$ARCA_TA_CACHE``, ``$XDG_CACHE_HOME/arca-client/tickets``,
+    ``~/.cache/arca-client/tickets``.
+    """
+    if env := os.environ.get("ARCA_TA_CACHE"):
+        return Path(env).expanduser().resolve()
+    base = os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache"
+    return Path(base).expanduser().resolve() / "arca-client" / "tickets"
+
+
+class FileTicketCache:
+    """Guarda cada TA como JSON en `directory` (por defecto :func:`default_cache_dir`)."""
+
+    def __init__(self, directory: str | os.PathLike | None = None) -> None:
+        self.directory = (
+            Path(directory).expanduser().resolve() if directory else default_cache_dir()
+        )
 
     def _path(self, key: str) -> Path:
         return self.directory / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', key)}.json"
@@ -47,7 +61,7 @@ class FileTicketCache:
             return None
 
     def set(self, key: str, ticket: AccessTicket) -> None:
-        self.directory.mkdir(parents=True, exist_ok=True)
+        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         path = self._path(key)
         tmp = path.with_suffix(".tmp")
         # El token/sign son credenciales: solo legibles por el dueño.
