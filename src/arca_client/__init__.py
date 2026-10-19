@@ -1,5 +1,5 @@
 from .environments import Environment
-from .exceptions import ArcaError, WSAAError, WSFEError
+from .exceptions import ArcaError, WSAAError, WSFEConnectionError, WSFEError
 from .wsaa import WSAA, AccessTicket, FileTicketCache, MemoryTicketCache
 from .wsfe import (
     WSFE,
@@ -32,6 +32,7 @@ __all__ = [
     "FileTicketCache",
     "MemoryTicketCache",
     "WSAAError",
+    "WSFEConnectionError",
     "WSFEError",
     "qr_url",
     "render_invoice_pdf",

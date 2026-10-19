@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
+import requests
 import zeep
 
 from arca_client import (
@@ -15,6 +16,7 @@ from arca_client import (
     CondicionIVAReceptor,
     DocTipo,
     MemoryTicketCache,
+    WSFEConnectionError,
     WSFEError,
 )
 from arca_client.wsaa.ticket import AccessTicket
@@ -41,6 +43,11 @@ class FakeService:
         self.errores = errores
         self.obs = obs
         self.requests = []
+        self.autorizados = {}  # numero -> detalle enviado, como la base de ARCA
+        # Simulación de cortes de comunicación en FECAESolicitar:
+        #   "antes": el pedido no llega a ARCA; "despues": ARCA autoriza y se pierde la respuesta.
+        self.corte = None
+        self.consultas_fallidas = 0  # cuántas llamadas a FECompConsultar fallan por red
 
     def FECompUltimoAutorizado(self, Auth, PtoVta, CbteTipo):
         self.requests.append(("ultimo", Auth, PtoVta, CbteTipo))
@@ -49,7 +56,13 @@ class FakeService:
     def FECAESolicitar(self, Auth, FeCAEReq):
         self.requests.append(("cae", Auth, FeCAEReq))
         det = FeCAEReq["FeDetReq"]["FECAEDetRequest"][0]
+        if self.corte == "antes":
+            raise requests.ConnectionError("conexión rechazada")
         aprobado = self.resultado == "A"
+        if aprobado:
+            self.autorizados[det["CbteDesde"]] = det
+        if self.corte == "despues":
+            raise requests.Timeout("se agotó el tiempo de espera")
         detalle = _t(
             "FECAEDetResponse",
             Concepto=det["Concepto"],
@@ -79,6 +92,37 @@ class FakeService:
             Errors=_array("Err", self.errores),
         )
 
+    def FECompConsultar(self, Auth, FeCompConsReq):
+        self.requests.append(("consulta", Auth, FeCompConsReq))
+        if self.consultas_fallidas:
+            self.consultas_fallidas -= 1
+            raise requests.ConnectionError("sin conexión")
+        det = self.autorizados.get(FeCompConsReq["CbteNro"])
+        if det is None:
+            return _t(
+                "FECompConsultaResponse",
+                Errors=_array("Err", [(602, "No existen datos en nuestros registros")]),
+            )
+        campos = (
+            "Concepto DocTipo DocNro CbteDesde CbteHasta CbteFch ImpTotal ImpTotConc ImpNeto "
+            "ImpOpEx ImpTrib ImpIVA FchServDesde FchServHasta FchVtoPago MonId MonCotiz "
+            "CondicionIVAReceptorId"
+        ).split()
+        return _t(
+            "FECompConsultaResponse",
+            ResultGet=_t(
+                "FECompConsResponse",
+                **{k: det.get(k) for k in campos},
+                Resultado="A",
+                CodAutorizacion="76123456789012",
+                EmisionTipo="CAE",
+                FchVto="20261029",
+                FchProceso="20261019201304",
+                PtoVta=FeCompConsReq["PtoVta"],
+                CbteTipo=FeCompConsReq["CbteTipo"],
+            ),
+        )
+
 
 @pytest.fixture
 def wsfe(cert_pem, key_pem):
@@ -87,7 +131,7 @@ def wsfe(cert_pem, key_pem):
     now = datetime.now(timezone.utc)
     ticket = AccessTicket("TOKEN", "SIGN", now, now + timedelta(hours=12))
     cache.set(wsaa._cache_key("wsfe"), ticket)
-    client = WSFE(wsaa)
+    client = WSFE(wsaa, recovery_delay=0)
     client.fake = FakeService()
     client._service = lambda: client.fake
     return client
@@ -227,11 +271,124 @@ def test_respuesta_real_de_homologacion(wsfe):
     assert factura.cae_vencimiento == date(2026, 10, 29)
 
 
-def test_respuesta_irreconocible_no_se_reporta_como_rechazo(wsfe):
-    wsfe.fake.FECAESolicitar = lambda **kwargs: NS(FeDetResp=None, Errors=None, Events=None)
-    with pytest.raises(ArcaError, match="podría haber sido autorizado") as exc:
+def _consultas(wsfe):
+    return [r for r in wsfe.fake.requests if r[0] == "consulta"]
+
+
+def test_get_voucher(wsfe):
+    factura = wsfe.create_invoice_c(1, "1500.50", fecha=date(2026, 10, 19))
+    consultada = wsfe.get_voucher(1, CbteTipo.FACTURA_C, factura.numero)
+    assert consultada.cae == "76123456789012"
+    assert consultada.importe_total == Decimal("1500.50")
+    assert consultada.fecha == date(2026, 10, 19)
+    assert consultada.condicion_iva_receptor is CondicionIVAReceptor.CONSUMIDOR_FINAL
+    assert wsfe.get_voucher(1, CbteTipo.FACTURA_C, 999) is None
+
+
+def test_get_voucher_otro_error(wsfe):
+    wsfe.fake.FECompConsultar = lambda **kw: _t(
+        "FECompConsultaResponse", Errors=_array("Err", [(600, "token inválido")])
+    )
+    with pytest.raises(WSFEError, match="600"):
+        wsfe.get_voucher(1, CbteTipo.FACTURA_C, 1)
+
+
+def test_corte_despues_de_autorizar_recupera_el_cae(wsfe):
+    """ARCA autorizó pero se perdió la respuesta: no hay que emitir otra factura."""
+    wsfe.fake.corte = "despues"
+    factura = wsfe.create_invoice_c(1, "1500.50", fecha=date(2026, 10, 19))
+    assert factura.numero == 42
+    assert factura.cae == "76123456789012"
+    assert factura.importe_total == Decimal("1500.50")
+    assert len(_consultas(wsfe)) == 1
+    assert list(wsfe.fake.autorizados) == [42]  # una sola factura emitida
+
+
+def test_corte_antes_de_autorizar_es_seguro_reintentar(wsfe):
+    wsfe.fake.corte = "antes"
+    with pytest.raises(WSFEConnectionError) as exc:
         wsfe.create_invoice_c(1, 10)
-    assert not isinstance(exc.value, WSFEError)
+    assert exc.value.safe_to_retry is True
+    assert exc.value.numero == 42
+    assert not wsfe.fake.autorizados
+
+    wsfe.fake.corte = None
+    assert wsfe.create_invoice_c(1, 10).numero == 42  # reintento: mismo número
+
+
+def test_corte_sin_poder_verificar_no_es_seguro(wsfe):
+    wsfe.fake.corte = "despues"
+    wsfe.fake.consultas_fallidas = 99
+    with pytest.raises(WSFEConnectionError, match="NO reintentes") as exc:
+        wsfe.create_invoice_c(1, 10)
+    assert exc.value.safe_to_retry is False
+    assert (exc.value.punto_venta, exc.value.numero) == (1, 42)
+    assert len(_consultas(wsfe)) == wsfe.recovery_attempts
+
+
+def test_corte_verifica_tras_reintentos(wsfe):
+    wsfe.fake.corte = "despues"
+    wsfe.fake.consultas_fallidas = 2  # falla 2 veces, la tercera responde
+    assert wsfe.create_invoice_c(1, 10).cae == "76123456789012"
+    assert len(_consultas(wsfe)) == 3
+
+
+def test_corte_con_datos_distintos_no_es_seguro(wsfe):
+    wsfe.fake.corte = "antes"
+    # Otro proceso ya usó el número 42 con otro importe.
+    wsfe.fake.autorizados[42] = {
+        "Concepto": 1,
+        "DocTipo": 99,
+        "DocNro": 0,
+        "CbteDesde": 42,
+        "CbteHasta": 42,
+        "CbteFch": "20261019",
+        "ImpTotal": 999.0,
+        "CondicionIVAReceptorId": 5,
+    }
+    with pytest.raises(WSFEConnectionError, match="datos distintos") as exc:
+        wsfe.create_invoice_c(1, 10, fecha=date(2026, 10, 19))
+    assert exc.value.safe_to_retry is False
+
+
+def test_respuesta_irreconocible_se_verifica(wsfe):
+    original = wsfe.fake.FECAESolicitar
+
+    def autoriza_pero_responde_raro(**kwargs):
+        original(**kwargs)
+        return NS(FeDetResp=None, Errors=None, Events=None)
+
+    wsfe.fake.FECAESolicitar = autoriza_pero_responde_raro
+    factura = wsfe.create_invoice_c(1, 10)
+    assert factura.cae == "76123456789012"
+    assert len(_consultas(wsfe)) == 1
+
+
+def test_errores_antes_de_enviar_no_disparan_recuperacion(wsfe, monkeypatch):
+    def sin_ticket(service):
+        raise ArcaError("WSAA caído")
+
+    monkeypatch.setattr(wsfe.wsaa, "get_ticket", sin_ticket)
+    with pytest.raises(ArcaError, match="WSAA caído"):
+        wsfe.create_invoice_c(1, 10)
+    assert not _consultas(wsfe)
+
+
+def test_rechazo_no_dispara_recuperacion(wsfe):
+    wsfe.fake.resultado = "R"
+    wsfe.fake.obs = [(10016, "numero no es el proximo")]
+    with pytest.raises(WSFEError):
+        wsfe.create_invoice_c(1, 10)
+    assert not _consultas(wsfe)
+
+
+def test_transport_tiene_timeout_de_operacion():
+    from arca_client.environments import Environment
+    from arca_client.transport import make_transport
+
+    transport = make_transport(Environment.HOMOLOGACION, 12)
+    assert transport.operation_timeout == 12
+    assert transport.load_timeout == 12
 
 
 @pytest.mark.parametrize(

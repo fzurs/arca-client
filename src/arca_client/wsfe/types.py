@@ -65,7 +65,7 @@ class ComprobanteAutorizado:
     concepto: Concepto
     doc_tipo: DocTipo
     doc_nro: int
-    condicion_iva_receptor: CondicionIVAReceptor
+    condicion_iva_receptor: CondicionIVAReceptor | None  # None en comprobantes viejos
     servicio_desde: date | None = None
     servicio_hasta: date | None = None
     vencimiento_pago: date | None = None

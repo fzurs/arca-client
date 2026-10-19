@@ -24,4 +24,5 @@ def make_transport(env: Environment, timeout: float) -> Transport:
     session = requests.Session()
     if env is Environment.HOMOLOGACION:
         session.mount("https://", _LowSecurityAdapter())
-    return Transport(session=session, timeout=timeout)
+    # `timeout` aplica a la descarga del WSDL y `operation_timeout` a cada llamada.
+    return Transport(session=session, timeout=timeout, operation_timeout=timeout)

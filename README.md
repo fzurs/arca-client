@@ -124,6 +124,34 @@ Ejemplo de línea de comandos:
 ARCA_CERT=cert.crt ARCA_KEY=private.key uv run python examples/factura_c.py 1500.00 1
 ```
 
+### Cortes de comunicación
+
+Si se corta la conexión después de enviar `FECAESolicitar` (timeout, error de red, respuesta ilegible), no se sabe si ARCA autorizó el comprobante. Reintentar con `create_invoice_c` calcularía el **número siguiente** y, si el primero se había autorizado, emitiría una factura duplicada.
+
+Por eso, ante un corte, `create_invoice_c` consulta ese mismo número con `FECompConsultar`, como recomienda el manual de ARCA ("Operatoria con errores de comunicación"):
+
+| Resultado de la consulta | Qué pasa |
+|---|---|
+| El comprobante existe con los datos enviados | Devuelve el `ComprobanteAutorizado` con su CAE, como si no hubiera habido corte. |
+| ARCA no lo registra (error 602) | Lanza `WSFEConnectionError` con `safe_to_retry=True`: se puede reintentar. |
+| La consulta también falla (3 intentos) | Lanza `WSFEConnectionError` con `safe_to_retry=False`: **no reintentar**. Verificá con `wsfe.get_voucher(e.punto_venta, e.tipo, e.numero)` cuando vuelva la conexión. |
+| Existe pero con otros datos | Lanza `WSFEConnectionError` con `safe_to_retry=False` (probablemente otro proceso usó el número). |
+
+```python
+from arca_client import WSFEConnectionError
+
+try:
+    factura = wsfe.create_invoice_c(punto_venta=1, importe_total="1500.00")
+except WSFEConnectionError as e:
+    if e.safe_to_retry:
+        factura = wsfe.create_invoice_c(punto_venta=1, importe_total="1500.00")
+    else:
+        # Guardar e.punto_venta / e.numero y verificar más tarde con get_voucher
+        raise
+```
+
+`wsfe.get_voucher(punto_venta, tipo, numero)` también sirve por sí solo para consultar cualquier comprobante emitido; devuelve `None` si no existe. Todas las llamadas a ARCA tienen timeout (30 s por defecto, configurable con `WSFE(..., timeout=...)`).
+
 ### PDF con código QR
 
 ARCA no ofrece un servicio para generar el PDF de las facturas emitidas por web service: lo tiene que generar el emisor. `render_invoice_pdf` arma la representación impresa de la Factura C con el código QR obligatorio (RG 4892). Requiere el extra `pdf` (`fpdf2` y `segno`).
@@ -164,7 +192,6 @@ Los SoapFault del WSAA se convierten en `WSAAError`, con `code` (ej. `cms.cert.e
 
 - **Los ejemplos (`examples/login.py` y `examples/factura_c.py`) no admiten claves privadas con contraseña.** Si la clave se generó con contraseña (por ejemplo, eligiendo esa opción en `arca-setup`), los scripts fallan al cargarla. La librería sí lo soporta con `WSAA(..., key_password=b"...")`; lo que falta es exponerlo en el ejemplo, ya sea con una variable `ARCA_KEY_PASSWORD` o pidiéndola por teclado.
 - **Numeración no concurrente.** `create_invoice_c` calcula el número como último + 1. Si dos procesos facturan al mismo tiempo en el mismo punto de venta, uno de los dos va a ser rechazado (error 10016) y hay que reintentarlo.
-- **Sin recuperación ante cortes.** Si la conexión se corta después de enviar `FECAESolicitar`, no se sabe si ARCA autorizó el comprobante. Falta implementar la consulta con `FECompConsultar` para verificarlo antes de reintentar; si no se verifica, se puede terminar emitiendo un comprobante duplicado.
 - **PDF solo con caracteres Latin-1.** El PDF usa las fuentes estándar (Helvetica), que cubren el español (á, ñ, ü, °) pero no emojis ni otros alfabetos: esos caracteres se reemplazan por `?`.
 
 ## Desarrollo

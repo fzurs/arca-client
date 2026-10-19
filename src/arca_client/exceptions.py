@@ -36,3 +36,21 @@ class WSFEError(ArcaError):
     @property
     def codes(self) -> list[int]:
         return [m.code for m in [*self.errores, *self.observaciones]]
+
+
+class WSFEConnectionError(ArcaError):
+    """Se interrumpió la comunicación al pedir el CAE.
+
+    - ``safe_to_retry=True``: se verificó con ``FECompConsultar`` que ARCA no
+      registró el comprobante; se puede volver a llamar a ``create_invoice_c``.
+    - ``safe_to_retry=False``: no se pudo verificar. **No reintentar** con
+      ``create_invoice_c`` (emitiría otro número): consultá
+      ``WSFE.get_voucher(punto_venta, tipo, numero)`` cuando vuelva la conexión.
+    """
+
+    def __init__(self, message: str, *, punto_venta: int, tipo, numero: int, safe_to_retry: bool):
+        self.punto_venta = punto_venta
+        self.tipo = tipo
+        self.numero = numero
+        self.safe_to_retry = safe_to_retry
+        super().__init__(message)

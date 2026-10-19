@@ -244,7 +244,7 @@ def _receptor(pdf, factura: ComprobanteAutorizado, receptor: Receptor, condicion
             doc_value = str(factura.doc_nro)
         _label_value(pdf, factura.doc_tipo.name, doc_value, half - 6)
         pdf.set_xy(x0 + 3, pdf.get_y() + 1)
-    condicion = CONDICION_IVA_TEXTO[factura.condicion_iva_receptor]
+    condicion = CONDICION_IVA_TEXTO.get(factura.condicion_iva_receptor, "-")
     _label_value(pdf, "Condición frente al IVA", condicion, half - 6)
     pdf.set_xy(x0 + 3, pdf.get_y() + 1)
     _label_value(pdf, "Condición de venta", condicion_venta, half - 6)
