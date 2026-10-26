@@ -1,6 +1,7 @@
 """Cliente del Web Service de Autenticación y Autorización (WSAA)."""
 
 import os
+from contextlib import nullcontext
 from datetime import datetime, timezone
 
 import zeep
@@ -54,14 +55,27 @@ class WSAA:
     def get_ticket(self, service: str, *, force: bool = False) -> AccessTicket:
         """Devuelve un TA vigente para `service`, del caché o pidiéndolo al WSAA."""
         key = self._cache_key(service)
-        if not force:
-            cached = self.cache.get(key)
-            if cached is not None and cached.is_valid():
-                return cached
+        if not force and (cached := self._cached(key)):
+            return cached
 
-        ticket = self.login(service)
-        self.cache.set(key, ticket)
-        return ticket
+        lock = getattr(self.cache, "lock", None)  # opcional en backends propios
+        with lock(key) if lock else nullcontext():
+            # Mientras se esperaba el bloqueo, otro proceso pudo haber obtenido el TA.
+            if not force and (cached := self._cached(key)):
+                return cached
+            try:
+                ticket = self.login(service)
+            except WSAAError as error:
+                # Otro proceso con un backend sin bloqueo pudo ganarnos de mano.
+                if error.code == "coe.alreadyAuthenticated" and (cached := self._cached(key)):
+                    return cached
+                raise
+            self.cache.set(key, ticket)
+            return ticket
+
+    def _cached(self, key: str) -> AccessTicket | None:
+        cached = self.cache.get(key)
+        return cached if cached is not None and cached.is_valid() else None
 
     def login(self, service: str) -> AccessTicket:
         """Pide un TA nuevo al WSAA, sin pasar por el caché."""

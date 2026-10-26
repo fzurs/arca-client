@@ -82,6 +82,8 @@ wsaa = WSAA(cert, key, cache=MemoryTicketCache())
 
 `MemoryTicketCache` pierde el TA cuando termina el proceso, así que solo conviene para tests o para un proceso que corre de forma permanente.
 
+Si varios procesos piden el TA a la vez, `FileTicketCache` los serializa con un archivo de bloqueo (`<clave>.lock`): solo uno llama al WSAA y los demás leen el TA del caché. Un backend propio puede hacer lo mismo con un método `lock(key)` que devuelva un context manager (por ejemplo, un lock de Redis); si no lo tiene, ante `coe.alreadyAuthenticated` se relee el caché una vez antes de fallar. El bloqueo de archivo solo coordina procesos de la misma máquina.
+
 ## Factura electrónica (WSFEv1)
 
 Por ahora solo **Factura C** (`CbteTipo 11`), es decir, comprobantes de monotributistas sin IVA discriminado.
