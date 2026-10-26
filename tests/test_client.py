@@ -44,6 +44,22 @@ def test_expired_ticket_is_renewed(wsaa, monkeypatch):
     assert wsaa.get_ticket("wsfe").token == "NEW"
 
 
+def test_ticket_reused_when_local_clock_is_behind(wsaa, monkeypatch):
+    # generationTime de ARCA 30 s adelante del reloj local: no debe pedirse otro TA.
+    generation = datetime.now(timezone.utc) + timedelta(seconds=30)
+    calls = []
+
+    def fake_login_cms(cms):
+        calls.append(cms)
+        return make_response(generation, generation + timedelta(hours=12), f"T{len(calls)}")
+
+    monkeypatch.setattr(wsaa, "_login_cms", fake_login_cms)
+
+    assert wsaa.get_ticket("wsfe").token == "T1"
+    assert wsaa.get_ticket("wsfe").token == "T1"
+    assert len(calls) == 1
+
+
 def test_fault_is_translated(wsaa, monkeypatch):
     def raise_fault(cms):
         raise Fault("Certificado expirado", code="ns1:cms.cert.expired")
