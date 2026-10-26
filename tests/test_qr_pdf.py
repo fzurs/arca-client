@@ -8,14 +8,20 @@ import pytest
 from pypdf import PdfReader
 
 from arca_client import (
+    Alicuota,
     CbteTipo,
+    ComprobanteAsociado,
     ComprobanteAutorizado,
     Concepto,
     CondicionIVAReceptor,
     DocTipo,
     Emisor,
     Item,
+    IvaAlicuota,
     Receptor,
+    TipoTributo,
+    Tributo,
+    neto_por_alicuota,
     qr_url,
     render_invoice_pdf,
 )
@@ -218,3 +224,160 @@ def test_pdf_total_con_bonificacion_debe_coincidir():
     # 1000 con 10 % = 900, no coincide con 1500.50
     with pytest.raises(ValueError, match="no coincide"):
         render_invoice_pdf(_factura(), EMISOR, [Item("X", "1000", bonificacion=10)])
+
+
+# --- Comprobantes A y B -------------------------------------------------------------
+
+IVA_A = [
+    IvaAlicuota(Alicuota.IVA_10_5, Decimal("500.00"), Decimal("52.50")),
+    IvaAlicuota(Alicuota.IVA_21, Decimal("1000.00"), Decimal("210.00")),
+]
+ITEMS_A = [
+    Item("Diseño", "1000.00", alicuota=Alicuota.IVA_21),
+    Item("Libro", "250.00", cantidad=2, alicuota=Alicuota.IVA_10_5),
+]
+
+
+def _factura_a(**overrides):
+    datos = dict(
+        tipo=CbteTipo.FACTURA_A,
+        importe_total=Decimal("1762.50"),
+        importe_neto=Decimal("1500.00"),
+        importe_iva=Decimal("262.50"),
+        iva=IVA_A,
+        doc_tipo=DocTipo.CUIT,
+        doc_nro=30712345671,
+        condicion_iva_receptor=CondicionIVAReceptor.IVA_RESPONSABLE_INSCRIPTO,
+    )
+    return _factura(**(datos | overrides))
+
+
+def test_neto_por_alicuota():
+    items = [*ITEMS_A, Item("Exento", "80"), Item("Más diseño", "10.50", alicuota=5)]
+    assert neto_por_alicuota(items) == {
+        Alicuota.IVA_10_5: Decimal("500.00"),
+        Alicuota.IVA_21: Decimal("1010.50"),
+    }
+    assert Item("X", "10", alicuota=5).alicuota is Alicuota.IVA_21
+    assert Item("X", "10", alicuota=Alicuota.IVA_21).subtotal_con_iva == Decimal("12.10")
+
+
+def test_qr_factura_a():
+    payload = qr_payload(_factura_a())
+    assert payload["tipoCmp"] == 1
+    assert payload["importe"] == 1762.5
+    assert payload["tipoDocRec"] == 80
+
+
+def test_pdf_factura_a_discrimina_iva():
+    text = _text(render_invoice_pdf(_factura_a(), EMISOR, ITEMS_A))
+    for expected in (
+        "COD. 001",
+        "FACTURA",
+        "IVA Responsable Inscripto",  # emisor: sale de la letra
+        "% IVA",
+        "Subtotal c/IVA",
+        "1.210,00",
+        "552,50",
+        "Importe Neto Gravado",
+        "1.500,00",
+        "IVA 10,5%",
+        "52,50",
+        "IVA 21%",
+        "210,00",
+        "1.762,50",
+        "Factura A 00003-00000042 - ORIGINAL - Pág. 1/1",
+    ):
+        assert expected in text, expected
+    assert "Responsable Monotributo" not in text
+    assert "A CONSUMIDOR FINAL" not in text
+
+
+def test_pdf_factura_a_items_por_alicuota_deben_coincidir():
+    items = [Item("Diseño", "1500.00", alicuota=Alicuota.IVA_21)]  # mismo neto, otra alícuota
+    with pytest.raises(ValueError, match="por alícuota"):
+        render_invoice_pdf(_factura_a(), EMISOR, items)
+    with pytest.raises(ValueError, match="sin alícuota"):
+        render_invoice_pdf(_factura_a(), EMISOR, [*ITEMS_A, Item("Exento", "10")])
+
+
+def test_pdf_factura_a_exento_y_tributos():
+    percepcion = Tributo(TipoTributo.PERCEPCION_IIBB, "1500.00", "3")
+    factura = _factura_a(
+        importe_total=Decimal("1857.50"),
+        importe_exento=Decimal("50.00"),
+        importe_tributos=Decimal("45.00"),
+        tributos=[percepcion],
+    )
+    text = _text(render_invoice_pdf(factura, EMISOR, [*ITEMS_A, Item("Exento", "50")]))
+    for expected in ("Importe Exento", "50,00", "Otros tributos", "Percepción de Ingresos Brutos"):
+        assert expected in text, expected
+    assert "45,00" in text and "1.857,50" in text
+
+
+def test_pdf_factura_c_no_admite_alicuotas():
+    with pytest.raises(ValueError, match="no se discrimina"):
+        render_invoice_pdf(_factura(), EMISOR, [Item("X", "1500.50", alicuota=Alicuota.IVA_21)])
+
+
+def test_pdf_factura_c_con_tributos():
+    factura = _factura(
+        importe_total=Decimal("1545.50"),
+        importe_tributos=Decimal("45.00"),
+        tributos=[Tributo(TipoTributo.PERCEPCION_IIBB, "1500.50", "3", importe="45.00")],
+    )
+    text = _text(render_invoice_pdf(factura, EMISOR, [Item("X", "1500.50")]))
+    assert "1.545,50" in text and "Otros tributos" in text
+
+
+def test_pdf_factura_b_consumidor_final():
+    factura = _factura(
+        tipo=CbteTipo.FACTURA_B,
+        importe_total=Decimal("1210.00"),
+        importe_neto=Decimal("1000.00"),
+        importe_iva=Decimal("210.00"),
+        iva=[IvaAlicuota(Alicuota.IVA_21, Decimal("1000.00"), Decimal("210.00"))],
+    )
+    items = [Item("Producto", "500.00", cantidad=2, alicuota=Alicuota.IVA_21)]
+    text = _text(render_invoice_pdf(factura, EMISOR, items))
+    for expected in (
+        "COD. 006",
+        "IVA Responsable Inscripto",
+        "A CONSUMIDOR FINAL",
+        "605,00",  # precio unitario con IVA
+        "1.210,00",
+        "Ley 27.743",
+        "IVA Contenido: $ 210,00",
+        "Otros Impuestos Nacionales Indirectos: $ 0,00",
+    ):
+        assert expected in text, expected
+    assert "IVA 21%" not in text and "% IVA" not in text
+
+
+def test_pdf_nota_de_credito_a():
+    nota = _factura_a(
+        tipo=CbteTipo.NOTA_CREDITO_A,
+        asociados=[
+            ComprobanteAsociado(
+                CbteTipo.FACTURA_A, 3, 41, cuit=20123456786, fecha=date(2026, 10, 1)
+            )
+        ],
+    )
+    text = _text(render_invoice_pdf(nota, EMISOR, ITEMS_A))
+    for expected in (
+        "NOTA DE CRÉDITO",
+        "COD. 003",
+        "Comprobante asociado: Factura A 00003-00000041 del 01/10/2026",
+        "Nota de Crédito A 00003-00000042",
+    ):
+        assert expected in text, expected
+
+
+def test_pdf_nota_de_debito_por_periodo():
+    nota = _factura_a(
+        tipo=CbteTipo.NOTA_DEBITO_A,
+        periodo_asociado=(date(2026, 9, 1), date(2026, 9, 30)),
+    )
+    text = _text(render_invoice_pdf(nota, EMISOR, ITEMS_A))
+    assert "NOTA DE DÉBITO" in text
+    assert "Período asociado: 01/09/2026 al 30/09/2026" in text

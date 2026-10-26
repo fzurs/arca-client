@@ -1,5 +1,5 @@
 from .client import CONDICIONES_A, CONDICIONES_B, WSFE
-from .pdf import Emisor, Item, Receptor, render_invoice_pdf
+from .pdf import Emisor, Item, Receptor, neto_por_alicuota, render_invoice_pdf
 from .qr import qr_payload, qr_url
 from .types import (
     Alicuota,
@@ -22,6 +22,7 @@ __all__ = [
     "Emisor",
     "Item",
     "Receptor",
+    "neto_por_alicuota",
     "qr_payload",
     "qr_url",
     "render_invoice_pdf",

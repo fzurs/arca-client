@@ -16,6 +16,7 @@ from .wsfe import (
     Receptor,
     TipoTributo,
     Tributo,
+    neto_por_alicuota,
     qr_url,
     render_invoice_pdf,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "WSAAError",
     "WSFEConnectionError",
     "WSFEError",
+    "neto_por_alicuota",
     "qr_url",
     "render_invoice_pdf",
 ]
