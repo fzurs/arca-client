@@ -2,7 +2,7 @@
 
 Cliente Python para los web services SOAP de **ARCA** (ex AFIP).
 
-Estado actual: **autenticación (WSAA)** y **Factura C (WSFEv1)** para monotributistas.
+Estado actual: **autenticación (WSAA)** y **factura electrónica (WSFEv1)**: Factura C para monotributistas y Factura A, Factura B y notas de crédito/débito A para responsables inscriptos.
 
 ## Instalación
 
@@ -86,7 +86,14 @@ Si varios procesos piden el TA a la vez, `FileTicketCache` los serializa con un 
 
 ## Factura electrónica (WSFEv1)
 
-Por ahora solo **Factura C** (`CbteTipo 11`), es decir, comprobantes de monotributistas sin IVA discriminado.
+| Método | Comprobante | Emisor | Receptor |
+|---|---|---|---|
+| `create_invoice_c` | Factura C (11) | Monotributista | Cualquiera |
+| `create_invoice_a` | Factura A (1) | Responsable inscripto | Responsable inscripto o monotributista |
+| `create_invoice_b` | Factura B (6) | Responsable inscripto | Consumidor final, exento, no categorizado, etc. |
+| `create_credit_note_a` / `create_debit_note_a` | Nota de Crédito A (3) / Nota de Débito A (2) | Responsable inscripto | Como la Factura A |
+
+### Factura C (monotributistas)
 
 ```python
 from datetime import date
@@ -127,6 +134,69 @@ Ejemplo de línea de comandos:
 ARCA_CERT=cert.crt ARCA_KEY=private.key uv run python examples/factura_c.py 1500.00 1
 ```
 
+### Responsable inscripto: Factura A y B
+
+Los importes se pasan como **neto por alícuota**; la librería calcula el IVA de cada alícuota sobre su base (redondeo half even, criterio de ARCA) y el total.
+
+```python
+from arca_client import Alicuota, CondicionIVAReceptor, TipoTributo, Tributo
+
+factura = wsfe.create_invoice_a(
+    punto_venta=1,
+    doc_nro=30712345671,  # CUIT del receptor (obligatoria en la A)
+    condicion_iva_receptor=CondicionIVAReceptor.IVA_RESPONSABLE_INSCRIPTO,
+    neto={Alicuota.IVA_21: "1000.00", Alicuota.IVA_10_5: "500.00"},
+    exento="100.00",  # opcionales: exento= y no_gravado=
+    tributos=[Tributo(TipoTributo.PERCEPCION_IIBB, base_imponible="1500.00", alicuota="3")],
+)
+factura.importe_neto, factura.importe_iva, factura.importe_tributos, factura.importe_total
+# Decimal('1500.00'), Decimal('262.50'), Decimal('45.00'), Decimal('1907.50')
+factura.iva  # [IvaAlicuota(IVA_10_5, 500.00, 52.50), IvaAlicuota(IVA_21, 1000.00, 210.00)]
+
+# Factura B a consumidor final sin identificar (también admite receptor identificado)
+wsfe.create_invoice_b(punto_venta=1, neto={Alicuota.IVA_21: "1000.00"})
+```
+
+- `ImpTotal = neto + no gravado + exento + IVA + tributos`. Si hay neto gravado se envía el array `Iva`; si todo es exento o no gravado, no.
+- La B también informa el IVA discriminado a ARCA (así lo pide WSFEv1); lo que cambia es el PDF, que muestra los precios con IVA incluido.
+- La condición frente al IVA del receptor se valida localmente contra la clase: la A es para responsables inscriptos y monotributistas (RG 5003), la B para el resto (`CONDICIONES_A` / `CONDICIONES_B`). La CUIT/CUIL del receptor se valida con su dígito verificador.
+- Alícuotas: `IVA_0`, `IVA_2_5`, `IVA_5`, `IVA_10_5`, `IVA_21`, `IVA_27`.
+- `Tributo(tipo, base_imponible, alicuota, importe=None, descripcion="")`: si no se indica `importe` se calcula `base × alícuota / 100`. Sirve para percepciones de IVA o IIBB, impuestos internos, etc., y también se puede usar en la Factura C (`create_invoice_c(..., tributos=[...])`, donde el neto pasa a ser el total menos los tributos).
+- El tope a partir del cual hay que identificar al consumidor final en la B lo valida ARCA.
+- La recuperación ante cortes, el reintento de numeración y `get_voucher` funcionan igual para todos los tipos; `get_voucher` devuelve también el detalle de IVA, tributos y comprobantes asociados.
+
+Ejemplo de línea de comandos (Factura A al 21 %):
+
+```bash
+ARCA_CERT=cert.crt ARCA_KEY=private.key uv run python examples/factura_a.py 30712345671 1000.00 1
+```
+
+### Notas de crédito y débito A
+
+Llevan los mismos argumentos que `create_invoice_a`, más el comprobante A al que se refieren (`asociado=`) o, si abarcan varios, el período (`periodo=(desde, hasta)`):
+
+```python
+nota = wsfe.create_credit_note_a(
+    punto_venta=1,
+    asociado=factura,  # un ComprobanteAutorizado o ComprobanteAsociado(tipo, punto_venta, numero)
+    doc_nro=30712345671,
+    condicion_iva_receptor=CondicionIVAReceptor.IVA_RESPONSABLE_INSCRIPTO,
+    neto={Alicuota.IVA_21: "100.00"},
+)
+```
+
+### Consultar parámetros de ARCA
+
+Consultas seguras (no emiten nada), útiles para verificar códigos:
+
+```python
+wsfe.condiciones_iva_receptor(
+    "A"
+)  # {1: 'IVA Responsable Inscripto', 6: 'Responsable Monotributo', ...}
+wsfe.tipos_iva()  # {3: '0%', 4: '10.5%', 5: '21%', ...}
+wsfe.tipos_tributo()  # {1: 'Impuestos nacionales', ..., 7: 'Percepción de IIBB', ...}
+```
+
 ### Cortes de comunicación
 
 Si se corta la conexión después de enviar `FECAESolicitar` (timeout, error de red, respuesta ilegible), no se sabe si ARCA autorizó el comprobante. Reintentar con `create_invoice_c` calcularía el **número siguiente** y, si el primero se había autorizado, emitiría una factura duplicada.
@@ -153,11 +223,13 @@ except WSFEConnectionError as e:
         raise
 ```
 
+Lo mismo vale para `create_invoice_a`, `create_invoice_b` y las notas de crédito/débito.
+
 `wsfe.get_voucher(punto_venta, tipo, numero)` también sirve por sí solo para consultar cualquier comprobante emitido; devuelve `None` si no existe. Todas las llamadas a ARCA tienen timeout (30 s por defecto, configurable con `WSFE(..., timeout=...)`).
 
 ### PDF con código QR
 
-ARCA no ofrece un servicio para generar el PDF de las facturas emitidas por web service: lo tiene que generar el emisor. `render_invoice_pdf` arma la representación impresa de la Factura C con el código QR obligatorio (RG 4892). Requiere el extra `pdf` (`fpdf2` y `segno`).
+ARCA no ofrece un servicio para generar el PDF de las facturas emitidas por web service: lo tiene que generar el emisor. `render_invoice_pdf` arma la representación impresa de cualquiera de los comprobantes anteriores con el código QR obligatorio (RG 4892). Requiere el extra `pdf` (`fpdf2` y `segno`).
 
 ```python
 from datetime import date
@@ -179,6 +251,12 @@ Path("factura.pdf").write_bytes(pdf)
 ```
 
 - La suma de los ítems tiene que coincidir con el importe autorizado; si no, se lanza `ValueError`. Para no calcularlo a mano, autorizá con `importe_total=sum(i.subtotal for i in items)`.
+- **A y B**: cada ítem gravado lleva su alícuota (`Item("Diseño", "1000.00", alicuota=Alicuota.IVA_21)`) y su precio va **sin IVA**. El neto de los ítems por alícuota tiene que coincidir con lo autorizado; para no calcularlo dos veces, autorizá con `neto=neto_por_alicuota(items)`. Los ítems sin alícuota cuentan como no gravados o exentos.
+- **A**: la tabla agrega las columnas "% IVA" y "Subtotal c/IVA", y los totales discriminan el neto gravado, el IVA de cada alícuota, el exento y el no gravado.
+- **B**: los precios se muestran con IVA incluido y, si el receptor es consumidor final, se imprime el "Régimen de Transparencia Fiscal al Consumidor" de la Ley 27.743 (IVA contenido y otros impuestos nacionales indirectos). Como el IVA de cada ítem se redondea por separado, la suma de los ítems con IVA puede diferir en centavos del total autorizado, que es el que se imprime en los totales.
+- **Notas de crédito/débito**: el título cambia a "NOTA DE CRÉDITO" / "NOTA DE DÉBITO" y se imprime el comprobante o período asociado.
+- Si hay tributos, se agrega una tabla "Otros tributos".
+- La condición frente al IVA del emisor sale de la letra ("Responsable Monotributo" en C, "IVA Responsable Inscripto" en A y B); se puede fijar con `Emisor(..., condicion_iva="...")`.
 - `bonificacion` es un porcentaje de descuento (0 a 100) por ítem. Si algún ítem tiene descuento, la tabla agrega las columnas "% Bonif" e "Imp. Bonif.", y el subtotal del ítem ya lo tiene aplicado.
 - Si la condición frente al IVA del receptor es consumidor final, se imprime la leyenda "A CONSUMIDOR FINAL" (RG 1415, Anexo II).
 - El documento y la condición frente al IVA del receptor, el período de servicio y el CAE salen del `ComprobanteAutorizado`.
@@ -192,6 +270,8 @@ Para facturar se necesita autorizar el certificado también al servicio `wsfe` (
 Los SoapFault del WSAA se convierten en `WSAAError`, con `code` (ej. `cms.cert.expired`) y `retryable`. Según la especificación, solo se puede reintentar ante `wsaa.*` y `wsn.unavailable`.
 
 ## Limitaciones conocidas
+
+- **Comprobantes no soportados**: Factura de Crédito Electrónica MiPyME (tipos 201 en adelante; ARCA rechaza la Factura A a una gran empresa por encima del monto mínimo de FCE), Factura M y A "operación sujeta a retención", notas de crédito/débito B y C, y comprobantes en moneda extranjera.
 
 - **Los ejemplos (`examples/login.py` y `examples/factura_c.py`) no admiten claves privadas con contraseña.** Si la clave se generó con contraseña (por ejemplo, eligiendo esa opción en `arca-setup`), los scripts fallan al cargarla. La librería sí lo soporta con `WSAA(..., key_password=b"...")`; lo que falta es exponerlo en el ejemplo, ya sea con una variable `ARCA_KEY_PASSWORD` o pidiéndola por teclado.
 - **PDF solo con caracteres Latin-1.** El PDF usa las fuentes estándar (Helvetica), que cubren el español (á, ñ, ü, °) pero no emojis ni otros alfabetos: esos caracteres se reemplazan por `?`.
