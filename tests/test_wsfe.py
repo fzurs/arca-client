@@ -48,6 +48,8 @@ class FakeService:
         #   "antes": el pedido no llega a ARCA; "despues": ARCA autoriza y se pierde la respuesta.
         self.corte = None
         self.consultas_fallidas = 0  # cuántas llamadas a FECompConsultar fallan por red
+        # Cuántos FECAESolicitar pierden la carrera: otro proceso emite justo antes.
+        self.competidores = 0
 
     def FECompUltimoAutorizado(self, Auth, PtoVta, CbteTipo):
         self.requests.append(("ultimo", Auth, PtoVta, CbteTipo))
@@ -58,9 +60,19 @@ class FakeService:
         det = FeCAEReq["FeDetReq"]["FECAEDetRequest"][0]
         if self.corte == "antes":
             raise requests.ConnectionError("conexión rechazada")
-        aprobado = self.resultado == "A"
+        if self.competidores:
+            self.competidores -= 1
+            self.last += 1
+            self.autorizados[self.last] = {**det, "CbteDesde": self.last, "DocNro": 99}
+        resultado, obs, errores = self.resultado, self.obs, self.errores
+        if det["CbteDesde"] != self.last + 1:  # validación de ARCA
+            # Homologación lo devuelve en Errors/Err, no en Observaciones/Obs.
+            resultado = "R"
+            errores = [(10016, "El numero o fecha del comprobante no se corresponde")]
+        aprobado = resultado == "A"
         if aprobado:
             self.autorizados[det["CbteDesde"]] = det
+            self.last = det["CbteDesde"]
         if self.corte == "despues":
             raise requests.Timeout("se agotó el tiempo de espera")
         detalle = _t(
@@ -71,8 +83,8 @@ class FakeService:
             CbteDesde=det["CbteDesde"],
             CbteHasta=det["CbteHasta"],
             CbteFch=det["CbteFch"],
-            Resultado=self.resultado,
-            Observaciones=_array("Obs", self.obs),
+            Resultado=resultado,
+            Observaciones=_array("Obs", obs),
             CAE="76123456789012" if aprobado else "",
             CAEFchVto="20261029" if aprobado else "",
         )
@@ -85,11 +97,11 @@ class FakeService:
                 CbteTipo=FeCAEReq["FeCabReq"]["CbteTipo"],
                 FchProceso="20261019201144",
                 CantReg=1,
-                Resultado=self.resultado,
+                Resultado=resultado,
                 Reproceso="N",
             ),
             FeDetResp=_t("ArrayOfFECAEDetResponse", FECAEDetResponse=[detalle]),
-            Errors=_array("Err", self.errores),
+            Errors=_array("Err", errores),
         )
 
     def FECompConsultar(self, Auth, FeCompConsReq):
@@ -202,6 +214,39 @@ def test_rechazo(wsfe):
     with pytest.raises(WSFEError) as exc:
         wsfe.create_invoice_c(1, 10)
     assert exc.value.codes == [10016]
+    # El último autorizado no cambió (el rechazo es por la fecha, por ejemplo): no se reintenta.
+    assert len(_pedidos_cae(wsfe)) == 1
+
+
+def _pedidos_cae(wsfe):
+    return [r for r in wsfe.fake.requests if r[0] == "cae"]
+
+
+def test_otro_proceso_usa_el_numero_se_reintenta_con_el_siguiente(wsfe):
+    wsfe.fake.competidores = 1  # otro proceso emite el 42 entre nuestra consulta y el pedido
+    factura = wsfe.create_invoice_c(1, 10)
+    assert factura.numero == 43
+    assert factura.cae == "76123456789012"
+    pedidos = [r["FeDetReq"]["FECAEDetRequest"][0]["CbteDesde"] for _, _, r in _pedidos_cae(wsfe)]
+    assert pedidos == [42, 43]
+    assert wsfe.fake.autorizados[42]["DocNro"] == 99  # el del otro proceso quedó intacto
+
+
+def test_numeracion_agota_reintentos(wsfe):
+    wsfe.fake.competidores = 10
+    with pytest.raises(WSFEError) as exc:
+        wsfe.create_invoice_c(1, 10)
+    assert exc.value.codes == [10016]
+    assert len(_pedidos_cae(wsfe)) == wsfe.numbering_attempts
+
+
+def test_otros_rechazos_no_se_reintentan(wsfe):
+    wsfe.fake.resultado = "R"
+    wsfe.fake.obs = [(10015, "documento inválido")]
+    with pytest.raises(WSFEError):
+        wsfe.create_invoice_c(1, 10)
+    assert len(_pedidos_cae(wsfe)) == 1
+    assert sum(r[0] == "ultimo" for r in wsfe.fake.requests) == 1
 
 
 def test_error_general(wsfe):
