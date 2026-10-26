@@ -10,12 +10,17 @@ import zeep
 from arca_client import (
     WSAA,
     WSFE,
+    Alicuota,
     ArcaError,
     CbteTipo,
+    ComprobanteAsociado,
     Concepto,
     CondicionIVAReceptor,
     DocTipo,
+    IvaAlicuota,
     MemoryTicketCache,
+    TipoTributo,
+    Tributo,
     WSFEConnectionError,
     WSFEError,
 )
@@ -118,7 +123,7 @@ class FakeService:
         campos = (
             "Concepto DocTipo DocNro CbteDesde CbteHasta CbteFch ImpTotal ImpTotConc ImpNeto "
             "ImpOpEx ImpTrib ImpIVA FchServDesde FchServHasta FchVtoPago MonId MonCotiz "
-            "CondicionIVAReceptorId"
+            "CondicionIVAReceptorId Iva Tributos CbtesAsoc PeriodoAsoc"
         ).split()
         return _t(
             "FECompConsultaResponse",
@@ -462,3 +467,332 @@ def test_validaciones_locales(wsfe, kwargs, error):
     with pytest.raises(error):
         wsfe.create_invoice_c(1, **kwargs)
     assert not any(r[0] == "cae" for r in wsfe.fake.requests)
+
+
+# --- Responsable inscripto: A, B, NC/ND y tributos --------------------------------
+
+RI = CondicionIVAReceptor.IVA_RESPONSABLE_INSCRIPTO
+CUIT_RECEPTOR = 30712345671
+FECHA = date(2026, 10, 19)
+
+
+def _factura_a(wsfe, **kwargs):
+    datos = dict(
+        doc_nro=CUIT_RECEPTOR,
+        condicion_iva_receptor=RI,
+        neto={Alicuota.IVA_21: "1000.00", Alicuota.IVA_10_5: "500.00"},
+        fecha=FECHA,
+    )
+    return wsfe.create_invoice_a(1, **(datos | kwargs))
+
+
+def test_factura_a_varias_alicuotas(wsfe):
+    factura = _factura_a(wsfe)
+
+    cab, det = _detalle(wsfe)
+    assert cab == {"CantReg": 1, "PtoVta": 1, "CbteTipo": 1}
+    assert det["DocTipo"] == 80 and det["DocNro"] == CUIT_RECEPTOR
+    assert det["CondicionIVAReceptorId"] == 1
+    assert det["ImpNeto"] == 1500.0
+    assert det["ImpIVA"] == 262.5
+    assert det["ImpTotal"] == 1762.5
+    assert det["ImpTotConc"] == det["ImpOpEx"] == det["ImpTrib"] == 0
+    assert det["Iva"] == {
+        "AlicIva": [
+            {"Id": 4, "BaseImp": 500.0, "Importe": 52.5},
+            {"Id": 5, "BaseImp": 1000.0, "Importe": 210.0},
+        ]
+    }
+    assert "Tributos" not in det and "CbtesAsoc" not in det
+
+    assert factura.tipo is CbteTipo.FACTURA_A
+    assert factura.cae == "76123456789012"
+    assert factura.importe_total == Decimal("1762.50")
+    assert factura.importe_neto == Decimal("1500.00")
+    assert factura.importe_iva == Decimal("262.50")
+    assert factura.iva == [
+        IvaAlicuota(Alicuota.IVA_10_5, Decimal("500.00"), Decimal("52.50")),
+        IvaAlicuota(Alicuota.IVA_21, Decimal("1000.00"), Decimal("210.00")),
+    ]
+
+
+def test_factura_a_a_monotributista(wsfe):
+    _factura_a(wsfe, condicion_iva_receptor=CondicionIVAReceptor.RESPONSABLE_MONOTRIBUTO)
+    _, det = _detalle(wsfe)
+    assert det["CondicionIVAReceptorId"] == 6
+
+
+def test_iva_redondeo_half_even(wsfe):
+    # 10.50 al 5 % = 0.525 -> 0.52 (half up daría 0.53)
+    factura = _factura_a(wsfe, neto={Alicuota.IVA_5: "10.50"})
+    assert factura.importe_iva == Decimal("0.52")
+    assert factura.importe_total == Decimal("11.02")
+
+
+def test_factura_a_solo_exento_y_no_gravado(wsfe):
+    factura = _factura_a(wsfe, neto=None, exento="100", no_gravado="50.50")
+    _, det = _detalle(wsfe)
+    assert "Iva" not in det
+    assert det["ImpNeto"] == det["ImpIVA"] == 0
+    assert det["ImpOpEx"] == 100 and det["ImpTotConc"] == 50.5
+    assert det["ImpTotal"] == 150.5
+    assert factura.importe_exento == Decimal("100.00")
+
+
+def test_factura_a_con_percepcion(wsfe):
+    percepcion = Tributo(TipoTributo.PERCEPCION_IIBB, "1000.00", "3.5")
+    assert percepcion.importe == Decimal("35.00")
+    factura = _factura_a(wsfe, neto={Alicuota.IVA_21: "1000.00"}, tributos=[percepcion])
+
+    _, det = _detalle(wsfe)
+    assert det["ImpTrib"] == 35
+    assert det["ImpTotal"] == 1245
+    assert det["Tributos"] == {
+        "Tributo": [
+            {
+                "Id": 7,
+                "Desc": "Percepción de Ingresos Brutos",
+                "BaseImp": 1000.0,
+                "Alic": 3.5,
+                "Importe": 35.0,
+            }
+        ]
+    }
+    assert factura.importe_tributos == Decimal("35.00")
+    assert factura.tributos == [percepcion]
+
+
+def test_tributo_validaciones():
+    assert Tributo(TipoTributo.OTROS, "100", "0", importe="12.34").importe == Decimal("12.34")
+    with pytest.raises(TypeError):
+        Tributo(TipoTributo.OTROS, 100.0, "3")
+    with pytest.raises(ValueError):
+        Tributo(TipoTributo.OTROS, "100", "-1")
+    with pytest.raises(ValueError):
+        Tributo(TipoTributo.OTROS, "100.001", "3")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error"),
+    [
+        ({"condicion_iva_receptor": CondicionIVAReceptor.CONSUMIDOR_FINAL}, ValueError),
+        ({"condicion_iva_receptor": CondicionIVAReceptor.IVA_SUJETO_EXENTO}, ValueError),
+        ({"doc_nro": 0}, ValueError),
+        ({"doc_nro": 30712345670}, ValueError),  # dígito verificador incorrecto
+        ({"neto": {}}, ValueError),
+        ({"neto": {Alicuota.IVA_21: 10.5}}, TypeError),
+        ({"neto": {Alicuota.IVA_21: "10.001"}}, ValueError),
+        ({"neto": {Alicuota.IVA_21: "-10"}}, ValueError),
+        ({"neto": {99: "10"}}, ValueError),
+        ({"tributos": [object()]}, TypeError),
+        ({"concepto": Concepto.SERVICIOS}, ValueError),
+    ],
+)
+def test_factura_a_validaciones_locales(wsfe, kwargs, error):
+    with pytest.raises(error):
+        _factura_a(wsfe, **kwargs)
+    assert not _pedidos_cae(wsfe)
+
+
+def test_factura_b_consumidor_final(wsfe):
+    factura = wsfe.create_invoice_b(1, neto={Alicuota.IVA_21: "1000.00"}, fecha=FECHA)
+    cab, det = _detalle(wsfe)
+    assert cab["CbteTipo"] == 6
+    assert det["DocTipo"] == 99 and det["DocNro"] == 0
+    assert det["CondicionIVAReceptorId"] == 5
+    assert det["Iva"] == {"AlicIva": [{"Id": 5, "BaseImp": 1000.0, "Importe": 210.0}]}
+    assert det["ImpTotal"] == 1210
+    assert factura.tipo is CbteTipo.FACTURA_B
+    assert factura.importe_total == Decimal("1210.00")
+
+
+def test_factura_b_exento_identificado(wsfe):
+    wsfe.create_invoice_b(
+        1,
+        neto={Alicuota.IVA_21: "100"},
+        doc_tipo=DocTipo.CUIT,
+        doc_nro=CUIT_RECEPTOR,
+        condicion_iva_receptor=CondicionIVAReceptor.IVA_SUJETO_EXENTO,
+    )
+    _, det = _detalle(wsfe)
+    assert det["CondicionIVAReceptorId"] == 4
+
+
+@pytest.mark.parametrize("condicion", [RI, CondicionIVAReceptor.RESPONSABLE_MONOTRIBUTO])
+def test_factura_b_a_quien_corresponde_a(wsfe, condicion):
+    with pytest.raises(ValueError, match="Factura A"):
+        wsfe.create_invoice_b(
+            1,
+            neto={Alicuota.IVA_21: "100"},
+            doc_tipo=DocTipo.CUIT,
+            doc_nro=CUIT_RECEPTOR,
+            condicion_iva_receptor=condicion,
+        )
+    assert not wsfe.fake.requests
+
+
+def test_nota_de_credito_a_asociada_a_factura(wsfe):
+    factura = _factura_a(wsfe)
+    nota = wsfe.create_credit_note_a(
+        1,
+        asociado=factura,
+        doc_nro=CUIT_RECEPTOR,
+        condicion_iva_receptor=RI,
+        neto={Alicuota.IVA_21: "100.00"},
+        fecha=FECHA,
+    )
+    cab, det = _detalle(wsfe)
+    assert cab["CbteTipo"] == 3
+    assert det["CbtesAsoc"] == {
+        "CbteAsoc": [
+            {"Tipo": 1, "PtoVta": 1, "Nro": 42, "Cuit": "20123456780", "CbteFch": "20261019"}
+        ]
+    }
+    assert "PeriodoAsoc" not in det
+    assert nota.tipo is CbteTipo.NOTA_CREDITO_A
+    assert nota.asociados == [
+        ComprobanteAsociado(CbteTipo.FACTURA_A, 1, 42, cuit=20123456780, fecha=FECHA)
+    ]
+
+    consultada = wsfe.get_voucher(1, CbteTipo.NOTA_CREDITO_A, nota.numero)
+    assert consultada.asociados == nota.asociados
+
+
+def test_nota_de_debito_a_por_periodo(wsfe):
+    nota = wsfe.create_debit_note_a(
+        1,
+        periodo=(date(2026, 9, 1), date(2026, 9, 30)),
+        doc_nro=CUIT_RECEPTOR,
+        condicion_iva_receptor=RI,
+        neto={Alicuota.IVA_21: "50"},
+    )
+    cab, det = _detalle(wsfe)
+    assert cab["CbteTipo"] == 2
+    assert det["PeriodoAsoc"] == {"FchDesde": "20260901", "FchHasta": "20260930"}
+    assert "CbtesAsoc" not in det
+    assert nota.periodo_asociado == (date(2026, 9, 1), date(2026, 9, 30))
+
+
+@pytest.mark.parametrize(
+    "asociacion",
+    [
+        {},
+        {
+            "asociado": ComprobanteAsociado(CbteTipo.FACTURA_A, 1, 1),
+            "periodo": (date(2026, 9, 1), date(2026, 9, 30)),
+        },
+        {"asociado": ComprobanteAsociado(CbteTipo.FACTURA_C, 1, 1)},
+        {"asociado": ComprobanteAsociado(201, 1, 1)},
+        {"periodo": (date(2026, 9, 30), date(2026, 9, 1))},
+    ],
+)
+def test_nota_a_validaciones(wsfe, asociacion):
+    with pytest.raises(ValueError):
+        wsfe.create_credit_note_a(
+            1,
+            doc_nro=CUIT_RECEPTOR,
+            condicion_iva_receptor=RI,
+            neto={Alicuota.IVA_21: "100"},
+            **asociacion,
+        )
+    assert not wsfe.fake.requests
+
+
+def test_factura_c_con_percepcion(wsfe):
+    percepcion = Tributo(TipoTributo.PERCEPCION_IIBB, "1000.00", "3.5")
+    factura = wsfe.create_invoice_c(1, "1035.00", tributos=[percepcion])
+    _, det = _detalle(wsfe)
+    assert det["ImpNeto"] == 1000 and det["ImpTrib"] == 35 and det["ImpTotal"] == 1035
+    assert "Iva" not in det
+    assert factura.importe_total == Decimal("1035.00")
+    assert factura.importe_neto == Decimal("1000.00")
+
+    with pytest.raises(ValueError, match="tributos"):
+        wsfe.create_invoice_c(1, "35.00", tributos=[percepcion])
+
+
+def test_get_voucher_factura_a_con_iva_y_tributos(wsfe):
+    percepcion = Tributo(TipoTributo.PERCEPCION_IIBB, "1000.00", "3.5")
+    factura = _factura_a(wsfe, tributos=[percepcion])
+    consultada = wsfe.get_voucher(1, CbteTipo.FACTURA_A, factura.numero)
+    assert consultada.tipo is CbteTipo.FACTURA_A
+    assert consultada.importe_total == factura.importe_total == Decimal("1797.50")
+    assert consultada.importe_neto == Decimal("1500.00")
+    assert consultada.importe_iva == Decimal("262.50")
+    assert consultada.importe_tributos == Decimal("35.00")
+    assert consultada.iva == factura.iva
+    assert consultada.tributos == [percepcion]
+    assert consultada.asociados == [] and consultada.periodo_asociado is None
+
+
+def test_factura_a_corte_despues_recupera_el_cae(wsfe):
+    wsfe.fake.corte = "despues"
+    factura = _factura_a(wsfe)
+    assert factura.cae == "76123456789012"
+    assert factura.importe_iva == Decimal("262.50")
+    assert len(_consultas(wsfe)) == 1
+    assert list(wsfe.fake.autorizados) == [42]
+
+
+def test_corte_con_iva_distinto_no_es_seguro(wsfe):
+    """Mismo total, documento y fecha, pero otra composición: no es nuestro comprobante."""
+    wsfe.fake.corte = "antes"
+    wsfe.fake.autorizados[42] = {
+        "Concepto": 1,
+        "DocTipo": 80,
+        "DocNro": CUIT_RECEPTOR,
+        "CbteDesde": 42,
+        "CbteHasta": 42,
+        "CbteFch": "20261019",
+        "ImpTotal": 1210.0,
+        "ImpNeto": 1210.0,
+        "ImpIVA": 0,
+        "CondicionIVAReceptorId": 1,
+    }
+    with pytest.raises(WSFEConnectionError, match="datos distintos"):
+        _factura_a(wsfe, neto={Alicuota.IVA_21: "1000.00"})
+
+
+def test_condiciones_iva_receptor(wsfe):
+    def responde(Auth, ClaseCmp):
+        assert ClaseCmp == "A"
+        return _t(
+            "CondicionIvaReceptorResponse",
+            ResultGet=_t(
+                "ArrayOfCondicionIvaReceptor",
+                CondicionIvaReceptor=[
+                    _t(
+                        "CondicionIvaReceptor",
+                        Id=1,
+                        Desc="IVA Responsable Inscripto",
+                        Cmp_Clase="A/M/C",
+                    ),
+                    _t(
+                        "CondicionIvaReceptor",
+                        Id=6,
+                        Desc="Responsable Monotributo",
+                        Cmp_Clase="A/M/C",
+                    ),
+                ],
+            ),
+        )
+
+    wsfe.fake.FEParamGetCondicionIvaReceptor = responde
+    assert wsfe.condiciones_iva_receptor("A") == {
+        1: "IVA Responsable Inscripto",
+        6: "Responsable Monotributo",
+    }
+
+
+def test_tipos_iva_y_tributos(wsfe):
+    wsfe.fake.FEParamGetTiposIva = lambda Auth: _t(
+        "IvaTipoResponse",
+        ResultGet=_t("ArrayOfIvaTipo", IvaTipo=[_t("IvaTipo", Id="5", Desc="21%")]),
+    )
+    wsfe.fake.FEParamGetTiposTributos = lambda Auth: _t(
+        "FETributoResponse",
+        Errors=_array("Err", [(600, "token inválido")]),
+    )
+    assert wsfe.tipos_iva() == {5: "21%"}
+    with pytest.raises(WSFEError, match="600"):
+        wsfe.tipos_tributo()
