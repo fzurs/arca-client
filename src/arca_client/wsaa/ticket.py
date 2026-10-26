@@ -35,9 +35,13 @@ class AccessTicket:
         )
 
     def is_valid(self, now: datetime | None = None, margin: timedelta = DEFAULT_MARGIN) -> bool:
-        """True si el TA sigue vigente con al menos `margin` de anticipación."""
+        """True si al TA le queda al menos `margin` antes de vencer.
+
+        No se exige ``generation_time <= now``: si el reloj local atrasa respecto de ARCA,
+        un TA recién emitido parecería "futuro" y se pediría otro (``coe.alreadyAuthenticated``).
+        """
         now = now or datetime.now(timezone.utc)
-        return self.generation_time <= now < self.expiration_time - margin
+        return now < self.expiration_time - margin
 
     def to_dict(self) -> dict:
         return {

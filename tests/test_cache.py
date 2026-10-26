@@ -46,3 +46,12 @@ def test_relative_dir_is_resolved(tmp_path, monkeypatch):
     cache = FileTicketCache("rel")
     monkeypatch.chdir("/")
     assert cache.directory == tmp_path / "rel"
+
+
+def test_lock_file_is_private(tmp_path):
+    cache = FileTicketCache(tmp_path / "tickets")
+    with cache.lock("homologacion-wsfe-abc"):
+        pass
+    (path,) = (tmp_path / "tickets").iterdir()
+    assert path.name == "homologacion-wsfe-abc.lock"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600

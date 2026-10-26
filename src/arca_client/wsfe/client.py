@@ -28,6 +28,8 @@ SERVICE = "wsfe"
 ARGENTINA_TZ = timezone(timedelta(hours=-3))
 _CENTS = Decimal("0.01")
 NOT_FOUND = 602  # "No existen datos en nuestros registros"
+# "El numero o fecha del comprobante no se corresponde con el proximo a autorizar"
+NEXT_NUMBER_MISMATCH = 10016
 
 # Errores después de los cuales no se sabe si ARCA procesó el pedido.
 _COMMUNICATION_ERRORS = (
@@ -60,6 +62,7 @@ class WSFE:
         timeout: float = 30,
         recovery_attempts: int = 3,
         recovery_delay: float = 2.0,
+        numbering_attempts: int = 3,
     ) -> None:
         self.wsaa = wsaa
         self.env = wsaa.env
@@ -70,6 +73,7 @@ class WSFE:
         self.timeout = timeout
         self.recovery_attempts = recovery_attempts
         self.recovery_delay = recovery_delay
+        self.numbering_attempts = numbering_attempts
         self._soap: zeep.Client | None = None
 
     # --- Métodos de negocio --------------------------------------------------
@@ -139,8 +143,10 @@ class WSFE:
     ) -> ComprobanteAutorizado:
         """Autoriza una Factura C (monotributistas) y devuelve el CAE.
 
-        El número se calcula como el último autorizado + 1. En clase C no se
-        discrimina IVA: el importe total es igual al neto (subtotal).
+        El número se calcula como el último autorizado + 1. Si otro proceso usa ese
+        número antes (rechazo 10016 y el último autorizado avanzó), se reintenta con
+        el siguiente hasta ``numbering_attempts`` veces: un rechazo no consume número.
+        En clase C no se discrimina IVA: el importe total es igual al neto (subtotal).
 
         - Consumidor final sin identificar: ``doc_tipo=DocTipo.CONSUMIDOR_FINAL``
           (por defecto), ``doc_nro=0``.
@@ -184,16 +190,6 @@ class WSFE:
             }
 
         tipo = CbteTipo.FACTURA_C
-        numero = self.last_voucher_number(punto_venta, tipo) + 1
-        detalle |= {"CbteDesde": numero, "CbteHasta": numero}
-
-        # Todo lo que puede fallar sin haber enviado nada (ticket, WSDL) va antes del try.
-        auth = self._auth()
-        service = self._service()
-        request = {
-            "FeCabReq": {"CantReg": 1, "PtoVta": punto_venta, "CbteTipo": int(tipo)},
-            "FeDetReq": {"FECAEDetRequest": [detalle]},
-        }
         datos = dict(
             cuit=self.cuit,
             punto_venta=punto_venta,
@@ -207,11 +203,31 @@ class WSFE:
             servicio_hasta=servicio_hasta if concepto is not Concepto.PRODUCTOS else None,
             vencimiento_pago=vencimiento_pago if concepto is not Concepto.PRODUCTOS else None,
         )
-        try:
-            result = service.FECAESolicitar(Auth=auth, FeCAEReq=request)
-            return _parse_cae_response(result, **datos)
-        except (*_COMMUNICATION_ERRORS, _UnrecognizedResponse) as error:
-            return self._recover(punto_venta, tipo, numero, fecha, datos, error)
+
+        ultimo = self.last_voucher_number(punto_venta, tipo)
+        for intento in range(1, self.numbering_attempts + 1):
+            numero = ultimo + 1
+            # Todo lo que puede fallar sin haber enviado nada (ticket, WSDL) va antes del try.
+            auth = self._auth()
+            service = self._service()
+            request = {
+                "FeCabReq": {"CantReg": 1, "PtoVta": punto_venta, "CbteTipo": int(tipo)},
+                "FeDetReq": {
+                    "FECAEDetRequest": [detalle | {"CbteDesde": numero, "CbteHasta": numero}]
+                },
+            }
+            try:
+                result = service.FECAESolicitar(Auth=auth, FeCAEReq=request)
+                return _parse_cae_response(result, **datos)
+            except WSFEError as error:
+                # Solo un rechazo explícito por número admite reintento: no se emitió nada.
+                if NEXT_NUMBER_MISMATCH not in error.codes or intento == self.numbering_attempts:
+                    raise
+                ultimo = self.last_voucher_number(punto_venta, tipo)
+                if ultimo < numero:  # nadie usó el número: el rechazo es por otra causa (la fecha)
+                    raise
+            except (*_COMMUNICATION_ERRORS, _UnrecognizedResponse) as error:
+                return self._recover(punto_venta, tipo, numero, fecha, datos, error)
 
     def _recover(
         self, punto_venta: int, tipo: CbteTipo, numero: int, fecha: date, datos: dict, error

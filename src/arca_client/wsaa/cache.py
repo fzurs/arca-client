@@ -7,13 +7,29 @@ El WSAA rechaza pedir un TA nuevo mientras haya uno vigente
 import json
 import os
 import re
+import threading
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Protocol
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
 
 from .ticket import AccessTicket
 
 
 class TicketCache(Protocol):
+    """Backend del caché.
+
+    Opcionalmente puede tener ``lock(key)``, un context manager que serializa a quienes
+    piden un TA para la misma clave (ver :meth:`FileTicketCache.lock`).
+    """
+
     def get(self, key: str) -> AccessTicket | None: ...
 
     def set(self, key: str, ticket: AccessTicket) -> None: ...
@@ -22,6 +38,12 @@ class TicketCache(Protocol):
 class MemoryTicketCache:
     def __init__(self) -> None:
         self._tickets: dict[str, AccessTicket] = {}
+        self._lock = threading.Lock()
+
+    @contextmanager
+    def lock(self, key: str) -> Iterator[None]:
+        with self._lock:
+            yield
 
     def get(self, key: str) -> AccessTicket | None:
         return self._tickets.get(key)
@@ -53,6 +75,22 @@ class FileTicketCache:
     def _path(self, key: str) -> Path:
         return self.directory / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', key)}.json"
 
+    @contextmanager
+    def lock(self, key: str) -> Iterator[None]:
+        """Bloqueo exclusivo sobre ``<key>.lock``, entre procesos e hilos.
+
+        Así, si varios piden el TA a la vez, solo uno llama al WSAA y los demás lo
+        leen del caché (si no, ARCA les responde ``coe.alreadyAuthenticated``).
+        El sistema operativo lo libera aunque el proceso muera.
+        """
+        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd = os.open(self._path(key).with_suffix(".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            _lock_file(fd)
+            yield
+        finally:
+            os.close(fd)  # cerrar el descriptor libera el bloqueo
+
     def get(self, key: str) -> AccessTicket | None:
         path = self._path(key)
         try:
@@ -69,3 +107,16 @@ class FileTicketCache:
         with os.fdopen(fd, "w") as f:
             json.dump(ticket.to_dict(), f)
         os.replace(tmp, path)
+
+
+def _lock_file(fd: int) -> None:
+    if fcntl is not None:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return
+    # msvcrt.LK_LOCK se rinde a los 10 s; se reintenta hasta obtenerlo.
+    while True:
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            return
+        except OSError:
+            time.sleep(0.1)

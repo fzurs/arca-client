@@ -22,6 +22,11 @@ def test_is_valid():
     assert not ticket.is_valid(now=datetime.now(timezone.utc))
 
 
+def test_is_valid_with_local_clock_behind():
+    ticket = AccessTicket.from_xml(SPEC_RESPONSE)
+    assert ticket.is_valid(now=ticket.generation_time - timedelta(seconds=30))
+
+
 def test_dict_roundtrip():
     ticket = AccessTicket.from_xml(SPEC_RESPONSE)
     assert AccessTicket.from_dict(ticket.to_dict()) == ticket

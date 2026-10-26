@@ -82,6 +82,8 @@ wsaa = WSAA(cert, key, cache=MemoryTicketCache())
 
 `MemoryTicketCache` pierde el TA cuando termina el proceso, así que solo conviene para tests o para un proceso que corre de forma permanente.
 
+Si varios procesos piden el TA a la vez, `FileTicketCache` los serializa con un archivo de bloqueo (`<clave>.lock`): solo uno llama al WSAA y los demás leen el TA del caché. Un backend propio puede hacer lo mismo con un método `lock(key)` que devuelva un context manager (por ejemplo, un lock de Redis); si no lo tiene, ante `coe.alreadyAuthenticated` se relee el caché una vez antes de fallar. El bloqueo de archivo solo coordina procesos de la misma máquina.
+
 ## Factura electrónica (WSFEv1)
 
 Por ahora solo **Factura C** (`CbteTipo 11`), es decir, comprobantes de monotributistas sin IVA discriminado.
@@ -113,6 +115,7 @@ wsfe.create_invoice_c(
 `create_invoice_c`:
 
 - Consulta el último número autorizado (`FECompUltimoAutorizado`) y usa el siguiente.
+- Si otro proceso usa ese número antes (rechazo 10016 y el último autorizado avanzó), reintenta con el siguiente, hasta `numbering_attempts` veces (3 por defecto). Es seguro: un comprobante rechazado no se emite ni consume número. Si el último no avanzó, el 10016 es por otra causa (por ejemplo, una fecha anterior a la del último comprobante) y se informa sin reintentar.
 - Arma el comprobante C: `ImpNeto` = `ImpTotal`, IVA, exento y no gravado en 0, sin array de IVA, moneda `PES`.
 - Informa la condición frente al IVA del receptor (obligatoria, RG 5616). Para consumidor final se completa sola; con un receptor identificado hay que indicarla.
 - Valida localmente lo básico: importe positivo con hasta 2 decimales (como `Decimal`, `int` o `str`, nunca `float`), documento y período de servicio.
@@ -191,7 +194,6 @@ Los SoapFault del WSAA se convierten en `WSAAError`, con `code` (ej. `cms.cert.e
 ## Limitaciones conocidas
 
 - **Los ejemplos (`examples/login.py` y `examples/factura_c.py`) no admiten claves privadas con contraseña.** Si la clave se generó con contraseña (por ejemplo, eligiendo esa opción en `arca-setup`), los scripts fallan al cargarla. La librería sí lo soporta con `WSAA(..., key_password=b"...")`; lo que falta es exponerlo en el ejemplo, ya sea con una variable `ARCA_KEY_PASSWORD` o pidiéndola por teclado.
-- **Numeración no concurrente.** `create_invoice_c` calcula el número como último + 1. Si dos procesos facturan al mismo tiempo en el mismo punto de venta, uno de los dos va a ser rechazado (error 10016) y hay que reintentarlo.
 - **PDF solo con caracteres Latin-1.** El PDF usa las fuentes estándar (Helvetica), que cubren el español (á, ñ, ü, °) pero no emojis ni otros alfabetos: esos caracteres se reemplazan por `?`.
 
 ## Desarrollo
