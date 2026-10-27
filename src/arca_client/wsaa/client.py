@@ -8,6 +8,7 @@ import zeep
 from cryptography.hazmat.primitives import hashes
 from zeep.exceptions import Fault
 
+from ..certificates import certificate_paths, read_pem
 from ..environments import Environment, wsaa_wsdl
 from ..exceptions import ArcaError, WSAAError
 from ..transport import make_transport
@@ -15,14 +16,6 @@ from .cache import FileTicketCache, TicketCache
 from .signer import load_certificate, load_private_key, sign_tra
 from .ticket import AccessTicket
 from .tra import build_tra
-
-
-def _read(value: bytes | str | os.PathLike) -> bytes:
-    """Acepta el contenido PEM en bytes o una ruta a archivo."""
-    if isinstance(value, bytes):
-        return value
-    with open(value, "rb") as f:
-        return f.read()
 
 
 class WSAA:
@@ -45,12 +38,38 @@ class WSAA:
         timeout: float = 30,
     ) -> None:
         self.env = Environment(env)
-        self.certificate = load_certificate(_read(cert))
-        self.private_key = load_private_key(_read(key), key_password)
+        self.certificate = load_certificate(read_pem(cert))
+        self.private_key = load_private_key(read_pem(key), key_password)
         self.cache = cache if cache is not None else FileTicketCache()
         self.hash_algorithm = hash_algorithm
         self.timeout = timeout
         self._soap: zeep.Client | None = None
+
+    @classmethod
+    def from_alias(
+        cls,
+        alias: str,
+        env: Environment | str = Environment.HOMOLOGACION,
+        *,
+        base_dir: str | os.PathLike = "certs",
+        **kwargs,
+    ) -> "WSAA":
+        """Carga el certificado y la clave desde donde los deja `arca-setup`.
+
+        Busca ``<base_dir>/<ambiente>/<alias>.crt`` y ``.key`` (ver
+        :func:`arca_client.certificate_paths`); el resto de los argumentos van a
+        ``__init__`` (`key_password`, `cache`, `hash_algorithm`, `timeout`).
+
+        >>> wsaa = WSAA.from_alias("miapp", Environment.HOMOLOGACION)
+        """
+        cert_path, key_path = certificate_paths(alias, env, base_dir)
+        for path in (cert_path, key_path):
+            if not path.is_file():
+                raise ArcaError(
+                    f"No existe {path}. Generá el certificado con `arca-setup` "
+                    "o revisá el alias, el ambiente y la carpeta base."
+                )
+        return cls(cert_path, key_path, env, **kwargs)
 
     def get_ticket(self, service: str, *, force: bool = False) -> AccessTicket:
         """Devuelve un TA vigente para `service`, del caché o pidiéndolo al WSAA."""

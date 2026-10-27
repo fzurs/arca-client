@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives import serialization
 from .certificates import (
     build_csr,
     certificate_matches_key,
+    certificate_paths,
     csr_pem,
     generate_private_key,
     is_valid_alias,
@@ -142,21 +143,26 @@ def collect_data() -> dict:
         validate=is_valid_alias,
         error="Solo se permiten letras y números, sin espacios.",
     )
-    out_dir = Path(ask("Carpeta donde guardar los archivos", f"certs/{env}")).expanduser()
+    base_dir = Path(
+        ask(f"Carpeta base de los certificados (se guardan en <carpeta>/{env}/)", "certs")
+    ).expanduser()
+    cert_path, key_path = certificate_paths(alias, env, base_dir)
     return {
         "env": Environment(env),
         "cuit": cuit,
         "organization": organization,
         "alias": alias,
-        "out_dir": out_dir,
+        "base_dir": base_dir,
+        "cert_path": cert_path,
+        "key_path": key_path,
+        "csr_path": key_path.with_suffix(".csr"),
     }
 
 
 def generate_files(data: dict) -> dict:
-    out_dir: Path = data["out_dir"]
     alias = data["alias"]
-    key_path = out_dir / f"{alias}.key"
-    csr_path = out_dir / f"{alias}.csr"
+    key_path: Path = data["key_path"]
+    csr_path: Path = data["csr_path"]
 
     title("Clave privada y CSR")
     password = None
@@ -183,10 +189,10 @@ def generate_files(data: dict) -> dict:
         warn("Guardala bien: no se puede recuperar y sin ella el certificado no sirve.")
 
     csr = csr_pem(build_csr(key, data["cuit"], data["organization"], alias))
-    out_dir.mkdir(parents=True, exist_ok=True)
+    csr_path.parent.mkdir(parents=True, exist_ok=True)
     csr_path.write_bytes(csr)
     ok(f"CSR guardado en {bold(str(csr_path))}")
-    return {**data, "key": key, "key_path": key_path, "csr_path": csr_path, "csr": csr.decode()}
+    return {**data, "key": key, "csr": csr.decode()}
 
 
 # --- Paso 2: guía en el sitio de ARCA ----------------------------------------
@@ -297,7 +303,7 @@ def read_certificate_input() -> bytes:
 
 
 def obtain_certificate(ctx: dict) -> None:
-    cert_path = ctx["out_dir"] / f"{ctx['alias']}.crt"
+    cert_path: Path = ctx["cert_path"]
     while True:
         try:
             cert = read_certificate_input()
@@ -309,7 +315,6 @@ def obtain_certificate(ctx: dict) -> None:
         except ValueError as e:
             warn(f"No pude leer el certificado: {e}")
     cert_path.write_bytes(cert)
-    ctx["cert_path"] = cert_path
     ok(f"Certificado verificado y guardado en {bold(str(cert_path))}")
 
 
