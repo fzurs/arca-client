@@ -2,6 +2,18 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según [SemVer](https://semver.org/lang/es/) (en `0.x`, la versión minor puede traer cambios de comportamiento: están marcados abajo).
 
+## [0.3.0] - 2026-10-26
+
+### Agregado
+
+- `cuit_from_certificate` es parte de la API pública (`from arca_client import cuit_from_certificate`) y acepta, además de un `x509.Certificate`, el PEM en bytes o una ruta, igual que `WSAA(cert=...)`.
+- `certificate_paths(alias, env, base_dir="certs")`: rutas `<base_dir>/<ambiente>/<alias>.crt|.key` donde guarda los archivos `arca-setup`.
+- `WSAA.from_alias(alias, env, base_dir="certs", **kwargs)`: carga el certificado y la clave desde esa convención; si falta alguno, `ArcaError` con la ruta buscada.
+
+### Cambiado
+
+- `arca-setup` pide la carpeta base (por defecto `certs`) en lugar de la carpeta final, y siempre guarda en `<carpeta base>/<ambiente>/`. Con los valores por defecto, las rutas son las mismas que antes.
+
 ## [0.2.0] - 2026-10-26
 
 ### Agregado

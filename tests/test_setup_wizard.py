@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 
-from arca_client import setup_wizard
+from arca_client import certificate_paths, setup_wizard
 
 
 def _sign_csr(csr_path, key_path):
@@ -25,7 +25,8 @@ def _sign_csr(csr_path, key_path):
 
 
 def test_full_homologacion_flow(tmp_path, monkeypatch, capsys):
-    out_dir = tmp_path / "certs"
+    base_dir = tmp_path / "certs"
+    out_dir = base_dir / "homologacion"
     pasted: list[str] = []
     opened = []
 
@@ -41,7 +42,7 @@ def test_full_homologacion_flow(tmp_path, monkeypatch, capsys):
         if "Alias" in prompt:
             return "miapp"
         if "Carpeta" in prompt:
-            return str(out_dir)
+            return str(base_dir)
         if "contraseña" in prompt:
             return "n"
         if "navegador" in prompt:
@@ -66,6 +67,11 @@ def test_full_homologacion_flow(tmp_path, monkeypatch, capsys):
     assert (out_dir / "miapp.key").exists()
     assert (out_dir / "miapp.csr").exists()
     assert b"BEGIN CERTIFICATE" in (out_dir / "miapp.crt").read_bytes()
+    # Mismas rutas que usa WSAA.from_alias.
+    assert certificate_paths("miapp", "homologacion", base_dir) == (
+        out_dir / "miapp.crt",
+        out_dir / "miapp.key",
+    )
     assert opened == [setup_wizard.ARCA_LOGIN_URL]
     output = capsys.readouterr().out
     assert "Nuevo Certificado" in output

@@ -1,3 +1,4 @@
+from .certificates import certificate_paths, cuit_from_certificate
 from .environments import Environment
 from .exceptions import ArcaError, WSAAError, WSFEConnectionError, WSFEError
 from .wsaa import WSAA, AccessTicket, FileTicketCache, MemoryTicketCache
@@ -45,6 +46,8 @@ __all__ = [
     "WSAAError",
     "WSFEConnectionError",
     "WSFEError",
+    "certificate_paths",
+    "cuit_from_certificate",
     "neto_por_alicuota",
     "qr_url",
     "render_invoice_pdf",

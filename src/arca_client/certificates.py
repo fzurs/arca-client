@@ -9,6 +9,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
+from .environments import Environment
+
 _CUIT_WEIGHTS = (5, 4, 3, 2, 7, 6, 5, 4, 3, 2)
 _ALIAS_RE = re.compile(r"^[A-Za-z0-9]+$")
 
@@ -82,8 +84,36 @@ def write_private(path: Path, data: bytes) -> None:
         f.write(data)
 
 
-def cuit_from_certificate(cert: x509.Certificate) -> str | None:
-    """Extrae la CUIT del campo serialNumber del DN (``CUIT 20123456786``)."""
+def read_pem(value: bytes | str | os.PathLike) -> bytes:
+    """Acepta el contenido PEM en bytes o una ruta a archivo."""
+    if isinstance(value, bytes):
+        return value
+    with open(value, "rb") as f:
+        return f.read()
+
+
+def certificate_paths(
+    alias: str, env: Environment | str, base_dir: str | os.PathLike = "certs"
+) -> tuple[Path, Path]:
+    """Rutas (certificado, clave) donde las guarda `arca-setup`: ``<base_dir>/<ambiente>/<alias>``.
+
+    Un `base_dir` relativo se resuelve contra el directorio actual; una app conviene
+    que pase una ruta absoluta (ej. ``BASE_DIR / "certs"``).
+    """
+    if not is_valid_alias(alias):
+        raise ValueError(f"Alias inválido {alias!r}: solo se permiten letras y números")
+    folder = Path(base_dir) / Environment(env).value
+    return folder / f"{alias}.crt", folder / f"{alias}.key"
+
+
+def cuit_from_certificate(cert: x509.Certificate | bytes | str | os.PathLike) -> str | None:
+    """Extrae la CUIT del campo serialNumber del DN (``CUIT 20123456786``).
+
+    Acepta el certificado ya cargado, el PEM en bytes o una ruta a archivo, igual
+    que ``WSAA(cert=...)``. Devuelve `None` si el certificado no tiene CUIT.
+    """
+    if not isinstance(cert, x509.Certificate):
+        cert = x509.load_pem_x509_certificate(read_pem(cert))
     for attr in cert.subject.get_attributes_for_oid(NameOID.SERIAL_NUMBER):
         match = re.fullmatch(r"CUIT\s*(\d{11})", str(attr.value).strip())
         if match:

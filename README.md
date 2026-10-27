@@ -24,11 +24,24 @@ uv run arca-setup
 El asistente:
 
 1. Pide el ambiente, la CUIT (valida el dígito verificador), la razón social y el alias.
-2. Genera la clave privada (`<alias>.key`, permisos 0600, contraseña opcional) y el CSR (`<alias>.csr`) en `certs/<ambiente>/`.
+2. Genera la clave privada (`<alias>.key`, permisos 0600, contraseña opcional) y el CSR (`<alias>.csr`) en `<carpeta base>/<ambiente>/` (por defecto `certs/homologacion/` o `certs/produccion/`).
 3. Abre el login de ARCA en el navegador y explica paso a paso dónde pegar el CSR: WSASS en homologación, *Administración de Certificados Digitales* en producción.
 4. Pide que pegues el certificado emitido (o su ruta), verifica que corresponda a la clave y lo guarda como `<alias>.crt`.
 5. Explica cómo autorizar el certificado a un web service: WSASS en homologación, *Administrador de Relaciones de Clave Fiscal* en producción.
 6. Opcionalmente prueba un login real contra el WSAA.
+
+Los archivos quedan en `certs/<ambiente>/<alias>.crt|.key`, y `WSAA.from_alias` los carga desde ahí:
+
+```python
+from arca_client import WSAA, Environment, certificate_paths
+
+wsaa = WSAA.from_alias("miapp", Environment.HOMOLOGACION)
+# Equivale a WSAA("certs/homologacion/miapp.crt", "certs/homologacion/miapp.key", ...)
+
+cert_path, key_path = certificate_paths("miapp", "produccion", base_dir="/srv/app/certs")
+```
+
+`base_dir` (por defecto `"certs"`) se resuelve contra el directorio actual: una aplicación conviene que pase una ruta absoluta, por ejemplo `WSAA.from_alias("miapp", env, base_dir=BASE_DIR / "certs")`. El resto de los argumentos (`key_password`, `cache`, `timeout`, …) van igual que en `WSAA(...)`. Si falta el `.crt` o el `.key`, lanza `ArcaError` con la ruta buscada.
 
 ### Manual con OpenSSL
 
@@ -117,6 +130,14 @@ wsfe.create_invoice_c(
     servicio_desde=date(2026, 10, 1),
     servicio_hasta=date(2026, 10, 31),
 )
+```
+
+Para leer la CUIT del certificado sin crear un `WSFE` (por ejemplo, para el PDF), `cuit_from_certificate` acepta las mismas entradas que `WSAA`: una ruta, el PEM en bytes o un `x509.Certificate`. Devuelve `None` si el certificado no trae CUIT.
+
+```python
+from arca_client import cuit_from_certificate
+
+cuit_from_certificate("certs/homologacion/miapp.crt")  # "20123456786"
 ```
 
 `create_invoice_c`:
