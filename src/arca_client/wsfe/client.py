@@ -306,21 +306,49 @@ class WSFE:
         identificar por defecto, o identificado con su condición frente al IVA, que
         tiene que ser válida para la clase B (``CONDICIONES_B``).
         """
-        importes = _importes(neto, no_gravado, exento, tributos)
-        condicion = _condicion_iva(doc_tipo, doc_nro, condicion_iva_receptor)
-        _validar_clase(CbteTipo.FACTURA_B, condicion)
-        return self._create(
+        return self._create_b(
             CbteTipo.FACTURA_B,
             punto_venta,
-            importes,
-            concepto=concepto,
+            neto=neto,
+            no_gravado=no_gravado,
+            exento=exento,
+            tributos=tributos,
             doc_tipo=doc_tipo,
             doc_nro=doc_nro,
-            condicion=condicion,
+            condicion_iva_receptor=condicion_iva_receptor,
+            concepto=concepto,
             fecha=fecha,
             servicio_desde=servicio_desde,
             servicio_hasta=servicio_hasta,
             vencimiento_pago=vencimiento_pago,
+        )
+
+    def create_credit_note_b(
+        self,
+        punto_venta: int,
+        *,
+        asociado: ComprobanteAsociado | ComprobanteAutorizado | None = None,
+        periodo: tuple[date, date] | None = None,
+        **kwargs,
+    ) -> ComprobanteAutorizado:
+        """Autoriza una Nota de Crédito B. Recibe los mismos argumentos que
+        :meth:`create_invoice_b` más el comprobante B que corrige (``asociado``) o, si
+        abarca varios, el ``periodo`` (desde, hasta): uno de los dos."""
+        return self._create_b(
+            CbteTipo.NOTA_CREDITO_B, punto_venta, asociado=asociado, periodo=periodo, **kwargs
+        )
+
+    def create_debit_note_b(
+        self,
+        punto_venta: int,
+        *,
+        asociado: ComprobanteAsociado | ComprobanteAutorizado | None = None,
+        periodo: tuple[date, date] | None = None,
+        **kwargs,
+    ) -> ComprobanteAutorizado:
+        """Autoriza una Nota de Débito B. Mismos argumentos que :meth:`create_credit_note_b`."""
+        return self._create_b(
+            CbteTipo.NOTA_DEBITO_B, punto_venta, asociado=asociado, periodo=periodo, **kwargs
         )
 
     def create_invoice_c(
@@ -350,20 +378,59 @@ class WSFE:
         - Servicios (concepto 2 o 3): ``servicio_desde`` y ``servicio_hasta``
           son obligatorios; ``vencimiento_pago`` por defecto es la fecha de emisión.
         """
-        importes = _importes_c(_amount(importe_total), tributos)
-        condicion = _condicion_iva(doc_tipo, doc_nro, condicion_iva_receptor)
-        return self._create(
+        return self._create_c(
             CbteTipo.FACTURA_C,
             punto_venta,
-            importes,
+            importe_total,
             concepto=concepto,
             doc_tipo=doc_tipo,
             doc_nro=doc_nro,
-            condicion=condicion,
+            condicion_iva_receptor=condicion_iva_receptor,
             fecha=fecha,
             servicio_desde=servicio_desde,
             servicio_hasta=servicio_hasta,
             vencimiento_pago=vencimiento_pago,
+            tributos=tributos,
+        )
+
+    def create_credit_note_c(
+        self,
+        punto_venta: int,
+        importe_total: Decimal | int | str,
+        *,
+        asociado: ComprobanteAsociado | ComprobanteAutorizado | None = None,
+        periodo: tuple[date, date] | None = None,
+        **kwargs,
+    ) -> ComprobanteAutorizado:
+        """Autoriza una Nota de Crédito C. Recibe los mismos argumentos que
+        :meth:`create_invoice_c` más el comprobante C que corrige (``asociado``) o, si
+        abarca varios, el ``periodo`` (desde, hasta): uno de los dos."""
+        return self._create_c(
+            CbteTipo.NOTA_CREDITO_C,
+            punto_venta,
+            importe_total,
+            asociado=asociado,
+            periodo=periodo,
+            **kwargs,
+        )
+
+    def create_debit_note_c(
+        self,
+        punto_venta: int,
+        importe_total: Decimal | int | str,
+        *,
+        asociado: ComprobanteAsociado | ComprobanteAutorizado | None = None,
+        periodo: tuple[date, date] | None = None,
+        **kwargs,
+    ) -> ComprobanteAutorizado:
+        """Autoriza una Nota de Débito C. Mismos argumentos que :meth:`create_credit_note_c`."""
+        return self._create_c(
+            CbteTipo.NOTA_DEBITO_C,
+            punto_venta,
+            importe_total,
+            asociado=asociado,
+            periodo=periodo,
+            **kwargs,
         )
 
     def _create_a(
@@ -388,15 +455,90 @@ class WSFE:
         importes = _importes(neto, no_gravado, exento, tributos)
         condicion = _condicion_iva(DocTipo.CUIT, doc_nro, condicion_iva_receptor)
         _validar_clase(tipo, condicion)
-        asociados: list[ComprobanteAsociado] = []
-        if tipo is not CbteTipo.FACTURA_A:
-            asociados, periodo = _asociacion(asociado, periodo)
+        asociados, periodo = _asociacion(tipo, asociado, periodo)
         return self._create(
             tipo,
             punto_venta,
             importes,
             concepto=concepto,
             doc_tipo=DocTipo.CUIT,
+            doc_nro=doc_nro,
+            condicion=condicion,
+            fecha=fecha,
+            servicio_desde=servicio_desde,
+            servicio_hasta=servicio_hasta,
+            vencimiento_pago=vencimiento_pago,
+            asociados=asociados,
+            periodo=periodo,
+        )
+
+    def _create_b(
+        self,
+        tipo: CbteTipo,
+        punto_venta: int,
+        *,
+        neto: Mapping[Alicuota, Decimal | int | str] | None = None,
+        no_gravado: Decimal | int | str = 0,
+        exento: Decimal | int | str = 0,
+        tributos: Iterable[Tributo] = (),
+        doc_tipo: DocTipo = DocTipo.CONSUMIDOR_FINAL,
+        doc_nro: int = 0,
+        condicion_iva_receptor: CondicionIVAReceptor | None = None,
+        concepto: Concepto = Concepto.PRODUCTOS,
+        fecha: date | None = None,
+        servicio_desde: date | None = None,
+        servicio_hasta: date | None = None,
+        vencimiento_pago: date | None = None,
+        asociado: ComprobanteAsociado | ComprobanteAutorizado | None = None,
+        periodo: tuple[date, date] | None = None,
+    ) -> ComprobanteAutorizado:
+        importes = _importes(neto, no_gravado, exento, tributos)
+        condicion = _condicion_iva(doc_tipo, doc_nro, condicion_iva_receptor)
+        _validar_clase(tipo, condicion)
+        asociados, periodo = _asociacion(tipo, asociado, periodo)
+        return self._create(
+            tipo,
+            punto_venta,
+            importes,
+            concepto=concepto,
+            doc_tipo=doc_tipo,
+            doc_nro=doc_nro,
+            condicion=condicion,
+            fecha=fecha,
+            servicio_desde=servicio_desde,
+            servicio_hasta=servicio_hasta,
+            vencimiento_pago=vencimiento_pago,
+            asociados=asociados,
+            periodo=periodo,
+        )
+
+    def _create_c(
+        self,
+        tipo: CbteTipo,
+        punto_venta: int,
+        importe_total: Decimal | int | str,
+        *,
+        concepto: Concepto = Concepto.PRODUCTOS,
+        doc_tipo: DocTipo = DocTipo.CONSUMIDOR_FINAL,
+        doc_nro: int = 0,
+        condicion_iva_receptor: CondicionIVAReceptor | None = None,
+        fecha: date | None = None,
+        servicio_desde: date | None = None,
+        servicio_hasta: date | None = None,
+        vencimiento_pago: date | None = None,
+        tributos: Iterable[Tributo] = (),
+        asociado: ComprobanteAsociado | ComprobanteAutorizado | None = None,
+        periodo: tuple[date, date] | None = None,
+    ) -> ComprobanteAutorizado:
+        importes = _importes_c(_amount(importe_total), tributos)
+        condicion = _condicion_iva(doc_tipo, doc_nro, condicion_iva_receptor)
+        asociados, periodo = _asociacion(tipo, asociado, periodo)
+        return self._create(
+            tipo,
+            punto_venta,
+            importes,
+            concepto=concepto,
+            doc_tipo=doc_tipo,
             doc_nro=doc_nro,
             condicion=condicion,
             fecha=fecha,
@@ -740,10 +882,16 @@ def _validar_clase(tipo: CbteTipo, condicion: CondicionIVAReceptor) -> None:
 
 
 def _asociacion(
+    tipo: CbteTipo,
     asociado: ComprobanteAsociado | ComprobanteAutorizado | None,
     periodo: tuple[date, date] | None,
 ) -> tuple[list[ComprobanteAsociado], tuple[date, date] | None]:
-    """Valida el comprobante o período al que se refiere una nota de crédito/débito."""
+    """Valida el comprobante o período al que se refiere una nota de crédito/débito.
+
+    Las facturas no llevan asociación: devuelve ``([], None)``.
+    """
+    if tipo.nombre == "Factura":
+        return [], None
     if (asociado is None) == (periodo is None):
         raise ValueError(
             "Una nota de crédito/débito se refiere a un comprobante (asociado=) o a un "
@@ -756,8 +904,11 @@ def _asociacion(
         return [], (desde, hasta)
     if isinstance(asociado, ComprobanteAutorizado):
         asociado = ComprobanteAsociado.from_comprobante(asociado)
-    if asociado.tipo not in set(CbteTipo) or CbteTipo(asociado.tipo).letra != "A":
-        raise ValueError(f"Una nota A solo puede referirse a un comprobante A, no {asociado.tipo}")
+    letra = tipo.letra
+    if asociado.tipo not in set(CbteTipo) or CbteTipo(asociado.tipo).letra != letra:
+        raise ValueError(
+            f"Una nota {letra} solo puede referirse a un comprobante {letra}, no {asociado.tipo}"
+        )
     return [asociado], None
 
 

@@ -2,6 +2,13 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según [SemVer](https://semver.org/lang/es/) (en `0.x`, la versión minor puede traer cambios de comportamiento: están marcados abajo).
 
+## [Unreleased]
+
+### Agregado
+
+- Notas de crédito y débito B (`create_credit_note_b` / `create_debit_note_b`, tipos 8 y 7) y C (`create_credit_note_c` / `create_debit_note_c`, tipos 13 y 12). Llevan los mismos argumentos que la Factura B o C, más `asociado=` o `periodo=`. El PDF las muestra como las notas A.
+- `CbteTipo` suma `NOTA_DEBITO_B`, `NOTA_CREDITO_B`, `NOTA_DEBITO_C` y `NOTA_CREDITO_C`.
+
 ## [0.3.0] - 2026-10-26
 
 ### Agregado

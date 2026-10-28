@@ -381,3 +381,40 @@ def test_pdf_nota_de_debito_por_periodo():
     text = _text(render_invoice_pdf(nota, EMISOR, ITEMS_A))
     assert "NOTA DE DÉBITO" in text
     assert "Período asociado: 01/09/2026 al 30/09/2026" in text
+
+
+def test_pdf_nota_de_credito_b_consumidor_final():
+    nota = _factura(
+        tipo=CbteTipo.NOTA_CREDITO_B,
+        importe_total=Decimal("1210.00"),
+        importe_neto=Decimal("1000.00"),
+        importe_iva=Decimal("210.00"),
+        iva=[IvaAlicuota(Alicuota.IVA_21, Decimal("1000.00"), Decimal("210.00"))],
+        asociados=[ComprobanteAsociado(CbteTipo.FACTURA_B, 3, 41, fecha=date(2026, 10, 1))],
+    )
+    items = [Item("Producto", "500.00", cantidad=2, alicuota=Alicuota.IVA_21)]
+    text = _text(render_invoice_pdf(nota, EMISOR, items))
+    for expected in (
+        "NOTA DE CRÉDITO",
+        "COD. 008",
+        "Comprobante asociado: Factura B 00003-00000041 del 01/10/2026",
+        "605,00",  # precio unitario con IVA, como en la Factura B
+        "IVA Contenido: $ 210,00",
+    ):
+        assert expected in text, expected
+    assert "% IVA" not in text
+
+
+def test_pdf_nota_de_debito_c():
+    nota = _factura(
+        tipo=CbteTipo.NOTA_DEBITO_C,
+        periodo_asociado=(date(2026, 9, 1), date(2026, 9, 30)),
+    )
+    text = _text(render_invoice_pdf(nota, EMISOR, [Item("Ajuste", "1500.50")]))
+    for expected in (
+        "NOTA DE DÉBITO",
+        "COD. 012",
+        "Responsable Monotributo",
+        "Período asociado: 01/09/2026 al 30/09/2026",
+    ):
+        assert expected in text, expected

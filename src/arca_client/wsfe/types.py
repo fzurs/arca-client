@@ -15,7 +15,11 @@ class CbteTipo(IntEnum):
     NOTA_DEBITO_A = 2
     NOTA_CREDITO_A = 3
     FACTURA_B = 6
+    NOTA_DEBITO_B = 7
+    NOTA_CREDITO_B = 8
     FACTURA_C = 11
+    NOTA_DEBITO_C = 12
+    NOTA_CREDITO_C = 13
 
     @property
     def letra(self) -> str:
@@ -37,11 +41,19 @@ _LETRAS = {
     CbteTipo.NOTA_DEBITO_A: "A",
     CbteTipo.NOTA_CREDITO_A: "A",
     CbteTipo.FACTURA_B: "B",
+    CbteTipo.NOTA_DEBITO_B: "B",
+    CbteTipo.NOTA_CREDITO_B: "B",
     CbteTipo.FACTURA_C: "C",
+    CbteTipo.NOTA_DEBITO_C: "C",
+    CbteTipo.NOTA_CREDITO_C: "C",
 }
 _NOMBRES = {
     CbteTipo.NOTA_DEBITO_A: "Nota de Débito",
     CbteTipo.NOTA_CREDITO_A: "Nota de Crédito",
+    CbteTipo.NOTA_DEBITO_B: "Nota de Débito",
+    CbteTipo.NOTA_CREDITO_B: "Nota de Crédito",
+    CbteTipo.NOTA_DEBITO_C: "Nota de Débito",
+    CbteTipo.NOTA_CREDITO_C: "Nota de Crédito",
 }
 
 
