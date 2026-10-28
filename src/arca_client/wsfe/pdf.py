@@ -6,7 +6,9 @@ Requiere el extra ``pdf``: ``pip install arca-client[pdf]``.
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
+from functools import cache
 from io import BytesIO
+from pathlib import Path
 
 from .qr import qr_url
 from .types import (
@@ -20,6 +22,13 @@ from .types import (
 )
 
 _CENTS = Decimal("0.01")
+# Liberation Sans (SIL OFL 1.1, ver fonts/OFL.txt): Unicode y con las mismas métricas que
+# Helvetica/Arial, así que el diseño no cambia respecto de las fuentes estándar de PDF.
+_FONT = "LiberationSans"
+_FONT_FILES = {
+    "": Path(__file__).parent / "fonts" / "LiberationSans-Regular.ttf",
+    "B": Path(__file__).parent / "fonts" / "LiberationSans-Bold.ttf",
+}
 LEYENDA_CONSUMIDOR_FINAL = "A CONSUMIDOR FINAL"
 LEYENDA_TRANSPARENCIA = "Régimen de Transparencia Fiscal al Consumidor (Ley 27.743)"
 # "Otros impuestos nacionales indirectos" de la leyenda de transparencia fiscal.
@@ -147,6 +156,8 @@ def render_invoice_pdf(
     segno.make(qr_url(factura), error="m").save(qr_png, kind="png", scale=8, border=0)
 
     pdf = FPDF(format="A4", unit="mm")
+    for style, path in _FONT_FILES.items():
+        pdf.add_font(_FONT, style, path)
     pdf.set_title(_txt(f"{_descripcion(factura.tipo)} {_numero(factura)}"))
     pdf.set_author(_txt(emisor.razon_social))
     pdf.set_auto_page_break(True, margin=15)
@@ -205,7 +216,7 @@ def _numerar_paginas(pdf, factura: ComprobanteAutorizado, rangos) -> None:
     """Pie en cada página para identificar las hojas de continuación."""
     ultima = pdf.page
     pdf.set_auto_page_break(False)
-    pdf.set_font("Helvetica", "", 7)
+    pdf.set_font(_FONT, "", 7)
     for copia, primera, final in rangos:
         total = final - primera + 1
         for n, page in enumerate(range(primera, final + 1), 1):
@@ -223,7 +234,7 @@ _W = 190  # ancho útil
 
 def _encabezado(pdf, factura: ComprobanteAutorizado, emisor: Emisor, copia: str) -> None:
     x0 = pdf.l_margin
-    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_font(_FONT, "B", 12)
     pdf.cell(_W, 8, _txt(copia), border=1, align="C", new_x="LMARGIN", new_y="NEXT")
 
     top, height, half = pdf.get_y(), 48, _W / 2
@@ -235,15 +246,15 @@ def _encabezado(pdf, factura: ComprobanteAutorizado, emisor: Emisor, copia: str)
     pdf.set_fill_color(255, 255, 255)
     pdf.rect(x0 + half - box / 2, top, box, box, style="DF")
     pdf.set_xy(x0 + half - box / 2, top + 1)
-    pdf.set_font("Helvetica", "B", 24)
+    pdf.set_font(_FONT, "B", 24)
     pdf.cell(box, 10, _letra(factura), align="C")
     pdf.set_xy(x0 + half - box / 2, top + 10)
-    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_font(_FONT, "B", 7)
     pdf.cell(box, 5, f"COD. {int(factura.tipo):03d}", align="C")
 
     # Emisor (izquierda)
     pdf.set_xy(x0 + 3, top + 4)
-    pdf.set_font("Helvetica", "B", 15)
+    pdf.set_font(_FONT, "B", 15)
     pdf.multi_cell(half - box / 2 - 6, 7, _txt(emisor.razon_social), align="C")
     y = max(pdf.get_y() + 2, top + 20)
     for label, value in (
@@ -258,10 +269,10 @@ def _encabezado(pdf, factura: ComprobanteAutorizado, emisor: Emisor, copia: str)
     # Comprobante (derecha)
     xr = x0 + half + 4
     pdf.set_xy(xr + box / 2, top + 3)
-    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_font(_FONT, "B", 18)
     pdf.cell(half - box / 2 - 6, 10, _txt(_nombre(factura.tipo).upper()))
     pdf.set_xy(xr, top + 18)
-    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_font(_FONT, "B", 9)
     pdf.cell(
         half - 6,
         5,
@@ -323,7 +334,7 @@ def _receptor(pdf, factura: ComprobanteAutorizado, receptor: Receptor, condicion
     pdf.set_xy(x0 + 3, top + 2)
     if factura.condicion_iva_receptor is CondicionIVAReceptor.CONSUMIDOR_FINAL:
         # Leyenda exigida por la RG 1415 (Anexo II) para receptores consumidores finales.
-        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_font(_FONT, "B", 9)
         pdf.cell(half - 6, 5, LEYENDA_CONSUMIDOR_FINAL, new_x="LEFT", new_y="NEXT")
         pdf.set_xy(x0 + 3, pdf.get_y() + 1)
     if factura.doc_tipo is not DocTipo.CONSUMIDOR_FINAL:
@@ -404,7 +415,7 @@ def _items(pdf, factura: ComprobanteAutorizado, items: list[Item]) -> None:
     fijos = sum(anchos[key] for _, key, _, _ in columnas if key)
     widths = tuple(anchos[key] if key else _W - fijos for _, key, _, _ in columnas)
 
-    pdf.set_font("Helvetica", "", 8)
+    pdf.set_font(_FONT, "", 8)
     pdf.set_draw_color(150, 150, 150)
     with pdf.table(
         col_widths=widths,
@@ -424,9 +435,9 @@ def _tributos(pdf, factura: ComprobanteAutorizado) -> None:
     if not factura.tributos:
         return
     pdf.ln(3)
-    pdf.set_font("Helvetica", "B", 8.5)
+    pdf.set_font(_FONT, "B", 8.5)
     pdf.cell(_W, 5, "Otros tributos", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 8)
+    pdf.set_font(_FONT, "", 8)
     pdf.set_draw_color(150, 150, 150)
     with pdf.table(
         col_widths=(100, 35, 20, 35),
@@ -457,7 +468,7 @@ def _pie(pdf, factura: ComprobanteAutorizado, qr_png: BytesIO) -> None:
     y = top + 3
     for label, value, bold in lineas:
         pdf.set_xy(x0 + 90, y)
-        pdf.set_font("Helvetica", "B", 10 if bold else 9)
+        pdf.set_font(_FONT, "B", 10 if bold else 9)
         pdf.cell(65, 6, _txt(label), align="R")
         pdf.cell(32, 6, _money(value), align="R")
         y += 7
@@ -472,7 +483,7 @@ def _pie(pdf, factura: ComprobanteAutorizado, qr_png: BytesIO) -> None:
     qr_png.seek(0)
     pdf.image(qr_png, x=x0, y=qr_top, w=qr_size, h=qr_size)
     pdf.set_xy(x0 + qr_size + 6, qr_top + 4)
-    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_font(_FONT, "B", 11)
     pdf.cell(80, 6, "Comprobante Autorizado")
     pdf.set_xy(x0 + 120, qr_top + 4)
     _label_value(pdf, "CAE N°", factura.cae, 70, inline=True)
@@ -502,7 +513,7 @@ def _transparencia_fiscal(pdf, factura: ComprobanteAutorizado, x: float, y: floa
         (t.importe for t in factura.tributos if t.tipo in _IMPUESTOS_INDIRECTOS), Decimal(0)
     )
     pdf.set_xy(x, y)
-    pdf.set_font("Helvetica", "B", 7.5)
+    pdf.set_font(_FONT, "B", 7.5)
     pdf.cell(85, 5, _txt(LEYENDA_TRANSPARENCIA))
     for i, (label, value) in enumerate(
         (
@@ -525,30 +536,34 @@ def _headings_style():
 
 
 def _label_value(pdf, label: str, value: str, width: float, inline: bool = False) -> None:
-    pdf.set_font("Helvetica", "B", 8.5)
+    pdf.set_font(_FONT, "B", 8.5)
     label_text = _txt(f"{label}: ")
     label_w = pdf.get_string_width(label_text) + 0.5
     if inline:
         pdf.cell(label_w, 5, label_text)
-        pdf.set_font("Helvetica", "", 8.5)
+        pdf.set_font(_FONT, "", 8.5)
         pdf.cell(max(width - label_w, 1), 5, _txt(value))
         return
     x = pdf.get_x()
     pdf.cell(label_w, 5, label_text)
-    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_font(_FONT, "", 8.5)
     pdf.multi_cell(max(width - label_w, 10), 5, _txt(value), new_x="LEFT", new_y="NEXT")
     pdf.set_x(x)
 
 
-_REPLACEMENTS = str.maketrans(
-    {"–": "-", "—": "-", "“": '"', "”": '"', "‘": "'", "’": "'", "…": "..."}
-)
-
-
 def _txt(value) -> str:
-    """Las fuentes estándar de PDF solo cubren Latin-1 (incluye á, é, ñ, ü, °)."""
-    text = str(value).translate(_REPLACEMENTS)
-    return text.encode("latin-1", "replace").decode("latin-1")
+    """Reemplaza por ``?`` los caracteres que la fuente no tiene (emojis, CJK, etc.)."""
+    glifos = _glifos()
+    return "".join(c if ord(c) in glifos or c in "\n\r\t" else "?" for c in str(value))
+
+
+@cache
+def _glifos() -> frozenset[int]:
+    """Caracteres que cubren a la vez la variante normal y la negrita de la fuente."""
+    from fontTools.ttLib import TTFont
+
+    regular, bold = (set(TTFont(path).getBestCmap()) for path in _FONT_FILES.values())
+    return frozenset(regular & bold)
 
 
 def _round(value: Decimal) -> Decimal:
