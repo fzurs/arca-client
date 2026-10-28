@@ -2,18 +2,17 @@
 
 Uso:
     ARCA_CERT=cert.crt ARCA_KEY=private.key uv run python examples/login.py [servicio]
+
+Si la clave tiene contraseña, se toma de ARCA_KEY_PASSWORD o se pide por teclado.
 """
 
-import os
 import sys
 
-from arca_client import WSAA, Environment
+from _wsaa import wsaa_desde_entorno
 
 service = sys.argv[1] if len(sys.argv) > 1 else "wsfe"
-env = Environment(os.environ.get("ARCA_ENV", "homologacion"))
-
-# TODO: soportar claves con contraseña (ver "Limitaciones conocidas" en el README).
-wsaa = WSAA(os.environ["ARCA_CERT"], os.environ["ARCA_KEY"], env)
+wsaa = wsaa_desde_entorno()
+env = wsaa.env
 ticket = wsaa.get_ticket(service)
 
 print(f"Servicio:   {service} ({env.value})")
