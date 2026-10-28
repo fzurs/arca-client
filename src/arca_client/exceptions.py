@@ -38,6 +38,23 @@ class WSFEError(ArcaError):
         return [m.code for m in [*self.errores, *self.observaciones]]
 
 
+class WSCDCError(ArcaError):
+    """WSCDC no pudo procesar el pedido de constatación (``<Errors>`` sin resultado).
+
+    No significa que el comprobante sea inválido: no se llegó a verificarlo.
+    `errores` es una lista de :class:`arca_client.wsfe.Mensaje`.
+    """
+
+    def __init__(self, errores: list):
+        self.errores = errores
+        detalle = "; ".join(str(m) for m in errores)
+        super().__init__(detalle or "WSCDC no devolvió resultado")
+
+    @property
+    def codes(self) -> list[int]:
+        return [m.code for m in self.errores]
+
+
 class WSFEConnectionError(ArcaError):
     """Se interrumpió la comunicación al pedir el CAE.
 
