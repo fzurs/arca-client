@@ -698,6 +698,115 @@ def test_nota_a_validaciones(wsfe, asociacion):
     assert not wsfe.fake.requests
 
 
+def test_nota_de_credito_b_a_consumidor_final(wsfe):
+    factura = wsfe.create_invoice_b(1, neto={Alicuota.IVA_21: "1000.00"}, fecha=FECHA)
+    nota = wsfe.create_credit_note_b(
+        1, asociado=factura, neto={Alicuota.IVA_21: "1000.00"}, fecha=FECHA
+    )
+    cab, det = _detalle(wsfe)
+    assert cab["CbteTipo"] == 8
+    assert det["DocTipo"] == 99 and det["DocNro"] == 0
+    assert det["CondicionIVAReceptorId"] == 5
+    assert det["Iva"] == {"AlicIva": [{"Id": 5, "BaseImp": 1000.0, "Importe": 210.0}]}
+    assert det["CbtesAsoc"] == {
+        "CbteAsoc": [
+            {"Tipo": 6, "PtoVta": 1, "Nro": 42, "Cuit": "20123456780", "CbteFch": "20261019"}
+        ]
+    }
+    assert nota.tipo is CbteTipo.NOTA_CREDITO_B
+    assert nota.importe_total == Decimal("1210.00")
+
+    consultada = wsfe.get_voucher(1, CbteTipo.NOTA_CREDITO_B, nota.numero)
+    assert consultada.asociados == nota.asociados
+
+
+def test_nota_de_debito_b_por_periodo_identificado(wsfe):
+    nota = wsfe.create_debit_note_b(
+        1,
+        periodo=(date(2026, 9, 1), date(2026, 9, 30)),
+        neto={Alicuota.IVA_21: "50"},
+        doc_tipo=DocTipo.CUIT,
+        doc_nro=CUIT_RECEPTOR,
+        condicion_iva_receptor=CondicionIVAReceptor.IVA_SUJETO_EXENTO,
+    )
+    cab, det = _detalle(wsfe)
+    assert cab["CbteTipo"] == 7
+    assert det["PeriodoAsoc"] == {"FchDesde": "20260901", "FchHasta": "20260930"}
+    assert nota.tipo is CbteTipo.NOTA_DEBITO_B
+
+
+def test_nota_de_credito_c_asociada_a_factura(wsfe):
+    factura = wsfe.create_invoice_c(1, "1500.00", fecha=FECHA)
+    nota = wsfe.create_credit_note_c(1, "500.00", asociado=factura, fecha=FECHA)
+    cab, det = _detalle(wsfe)
+    assert cab["CbteTipo"] == 13
+    assert det["ImpTotal"] == 500 and det["ImpNeto"] == 500
+    assert "Iva" not in det
+    assert det["CbtesAsoc"]["CbteAsoc"][0]["Tipo"] == 11
+    assert nota.tipo is CbteTipo.NOTA_CREDITO_C
+    assert nota.asociados == [
+        ComprobanteAsociado(CbteTipo.FACTURA_C, 1, 42, cuit=20123456780, fecha=FECHA)
+    ]
+
+
+def test_nota_de_debito_c_por_periodo(wsfe):
+    nota = wsfe.create_debit_note_c(1, "100", periodo=(date(2026, 9, 1), date(2026, 9, 30)))
+    cab, det = _detalle(wsfe)
+    assert cab["CbteTipo"] == 12
+    assert det["PeriodoAsoc"] == {"FchDesde": "20260901", "FchHasta": "20260930"}
+    assert nota.tipo is CbteTipo.NOTA_DEBITO_C
+
+
+@pytest.mark.parametrize(
+    ("crear", "kwargs"),
+    [
+        # Una nota se refiere a un comprobante de su misma clase.
+        ("create_credit_note_b", {"asociado": ComprobanteAsociado(CbteTipo.FACTURA_A, 1, 1)}),
+        ("create_credit_note_b", {"asociado": ComprobanteAsociado(CbteTipo.FACTURA_C, 1, 1)}),
+        ("create_debit_note_c", {"asociado": ComprobanteAsociado(CbteTipo.FACTURA_B, 1, 1)}),
+        ("create_credit_note_c", {}),
+        (
+            "create_credit_note_c",
+            {
+                "asociado": ComprobanteAsociado(CbteTipo.FACTURA_C, 1, 1),
+                "periodo": (date(2026, 9, 1), date(2026, 9, 30)),
+            },
+        ),
+        # La B sigue las reglas de clase de la Factura B.
+        (
+            "create_credit_note_b",
+            {
+                "asociado": ComprobanteAsociado(CbteTipo.FACTURA_B, 1, 1),
+                "doc_tipo": DocTipo.CUIT,
+                "doc_nro": CUIT_RECEPTOR,
+                "condicion_iva_receptor": RI,
+            },
+        ),
+    ],
+)
+def test_notas_b_y_c_validaciones(wsfe, crear, kwargs):
+    if crear.endswith("_b"):
+        kwargs = {"neto": {Alicuota.IVA_21: "100"}, **kwargs}
+        args = (1,)
+    else:
+        args = (1, "100")
+    with pytest.raises(ValueError):
+        getattr(wsfe, crear)(*args, **kwargs)
+    assert not wsfe.fake.requests
+
+
+def test_nota_a_asociada_a_factura_b(wsfe):
+    with pytest.raises(ValueError, match="Una nota A solo puede referirse a un comprobante A"):
+        wsfe.create_debit_note_a(
+            1,
+            asociado=ComprobanteAsociado(CbteTipo.FACTURA_B, 1, 1),
+            doc_nro=CUIT_RECEPTOR,
+            condicion_iva_receptor=RI,
+            neto={Alicuota.IVA_21: "100"},
+        )
+    assert not wsfe.fake.requests
+
+
 def test_factura_c_con_percepcion(wsfe):
     percepcion = Tributo(TipoTributo.PERCEPCION_IIBB, "1000.00", "3.5")
     factura = wsfe.create_invoice_c(1, "1035.00", tributos=[percepcion])

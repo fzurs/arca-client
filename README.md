@@ -2,7 +2,7 @@
 
 Cliente Python para los web services SOAP de **ARCA** (ex AFIP).
 
-Estado actual: **autenticación (WSAA)** y **factura electrónica (WSFEv1)**: Factura C para monotributistas y Factura A, Factura B y notas de crédito/débito A para responsables inscriptos.
+Estado actual: **autenticación (WSAA)** y **factura electrónica (WSFEv1)**: Factura C y sus notas de crédito/débito para monotributistas; Factura A, Factura B y sus notas de crédito/débito para responsables inscriptos.
 
 ## Instalación
 
@@ -105,6 +105,8 @@ Si varios procesos piden el TA a la vez, `FileTicketCache` los serializa con un 
 | `create_invoice_a` | Factura A (1) | Responsable inscripto | Responsable inscripto o monotributista |
 | `create_invoice_b` | Factura B (6) | Responsable inscripto | Consumidor final, exento, no categorizado, etc. |
 | `create_credit_note_a` / `create_debit_note_a` | Nota de Crédito A (3) / Nota de Débito A (2) | Responsable inscripto | Como la Factura A |
+| `create_credit_note_b` / `create_debit_note_b` | Nota de Crédito B (8) / Nota de Débito B (7) | Responsable inscripto | Como la Factura B |
+| `create_credit_note_c` / `create_debit_note_c` | Nota de Crédito C (13) / Nota de Débito C (12) | Monotributista | Como la Factura C |
 
 ### Factura C (monotributistas)
 
@@ -192,9 +194,9 @@ Ejemplo de línea de comandos (Factura A al 21 %):
 ARCA_CERT=cert.crt ARCA_KEY=private.key uv run python examples/factura_a.py 30712345671 1000.00 1
 ```
 
-### Notas de crédito y débito A
+### Notas de crédito y débito
 
-Llevan los mismos argumentos que `create_invoice_a`, más el comprobante A al que se refieren (`asociado=`) o, si abarcan varios, el período (`periodo=(desde, hasta)`):
+Cada nota lleva los mismos argumentos que la factura de su clase (`create_invoice_a`, `create_invoice_b` o `create_invoice_c`), más el comprobante al que se refiere (`asociado=`) o, si abarca varios, el período (`periodo=(desde, hasta)`). Hay que indicar uno de los dos, y el asociado tiene que ser de la misma letra que la nota: una nota B solo puede referirse a un comprobante B.
 
 ```python
 nota = wsfe.create_credit_note_a(
@@ -204,6 +206,13 @@ nota = wsfe.create_credit_note_a(
     condicion_iva_receptor=CondicionIVAReceptor.IVA_RESPONSABLE_INSCRIPTO,
     neto={Alicuota.IVA_21: "100.00"},
 )
+
+# B: neto por alícuota; consumidor final sin identificar por defecto, como la Factura B
+wsfe.create_credit_note_b(punto_venta=1, asociado=factura_b, neto={Alicuota.IVA_21: "1000.00"})
+
+# C: importe total, como la Factura C
+wsfe.create_credit_note_c(1, "500.00", asociado=factura_c)
+wsfe.create_debit_note_c(1, "100.00", periodo=(date(2026, 9, 1), date(2026, 9, 30)))
 ```
 
 ### Consultar parámetros de ARCA
@@ -292,7 +301,7 @@ Los SoapFault del WSAA se convierten en `WSAAError`, con `code` (ej. `cms.cert.e
 
 ## Limitaciones conocidas
 
-- **Comprobantes no soportados**: Factura de Crédito Electrónica MiPyME (tipos 201 en adelante; ARCA rechaza la Factura A a una gran empresa por encima del monto mínimo de FCE), Factura M y A "operación sujeta a retención", notas de crédito/débito B y C, y comprobantes en moneda extranjera.
+- **Comprobantes no soportados**: Factura de Crédito Electrónica MiPyME (tipos 201 en adelante; ARCA rechaza la Factura A a una gran empresa por encima del monto mínimo de FCE), Factura M y A "operación sujeta a retención" y comprobantes en moneda extranjera.
 
 - **Los ejemplos (`examples/login.py` y `examples/factura_c.py`) no admiten claves privadas con contraseña.** Si la clave se generó con contraseña (por ejemplo, eligiendo esa opción en `arca-setup`), los scripts fallan al cargarla. La librería sí lo soporta con `WSAA(..., key_password=b"...")`; lo que falta es exponerlo en el ejemplo, ya sea con una variable `ARCA_KEY_PASSWORD` o pidiéndola por teclado.
 - **PDF solo con caracteres Latin-1.** El PDF usa las fuentes estándar (Helvetica), que cubren el español (á, ñ, ü, °) pero no emojis ni otros alfabetos: esos caracteres se reemplazan por `?`.
