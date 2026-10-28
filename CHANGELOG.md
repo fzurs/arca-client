@@ -8,6 +8,19 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 
 - Notas de crédito y débito B (`create_credit_note_b` / `create_debit_note_b`, tipos 8 y 7) y C (`create_credit_note_c` / `create_debit_note_c`, tipos 13 y 12). Llevan los mismos argumentos que la Factura B o C, más `asociado=` o `periodo=`. El PDF las muestra como las notas A.
 - `CbteTipo` suma `NOTA_DEBITO_B`, `NOTA_CREDITO_B`, `NOTA_DEBITO_C` y `NOTA_CREDITO_C`.
+- **Constatación de comprobantes (WSCDC)**: `WSCDC.verify_voucher(...)` y `WSCDC.verify_qr(texto_del_qr)` verifican en ARCA las facturas recibidas de proveedores y devuelven una `Constatacion` (`aprobada`, `observaciones`, `errores`). También: `tipos_comprobante()`, `tipos_documento()`, `modalidades()` y `estado()`. Nuevos `WSCDCError` y `ModoAutorizacion`.
+- `parse_qr_url(texto)`: lee el JSON del QR de un comprobante (RG 4892).
+- Ejemplo `examples/verificar_comprobante.py`.
+- Los ejemplos admiten claves privadas con contraseña: `ARCA_KEY_PASSWORD` o, si no está definida, la piden por teclado.
+
+### Cambiado
+
+- **PDF**: usa Liberation Sans (incluida, licencia SIL OFL 1.1) en lugar de Helvetica. El diseño no cambia (mismas métricas), pero ahora se imprimen tal cual los guiones largos, las comillas tipográficas, €, ™, el griego, el cirílico, etc. Solo los caracteres que la fuente no tiene (emojis, CJK) se reemplazan por `?`. El PDF pesa unos 30 KB más porque incluye un subconjunto de la fuente.
+- El extra `pdf` declara `fonttools` (ya venía como dependencia de `fpdf2`).
+
+### Corregido
+
+- **Producción**: WSFEv1 (y WSCDC) no conectaban con OpenSSL 3 (`DH_KEY_TOO_SMALL`), porque `servicios1.afip.gov.ar` usa la misma clave DH chica que homologación. Ahora se acepta `SECLEVEL=1` solo para ese servidor, sin dejar de verificar el certificado ni el host. El WSAA de producción sigue con la configuración TLS por defecto.
 
 ## [0.3.0] - 2026-10-26
 

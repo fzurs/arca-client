@@ -2,7 +2,7 @@
 
 Cliente Python para los web services SOAP de **ARCA** (ex AFIP).
 
-Estado actual: **autenticación (WSAA)** y **factura electrónica (WSFEv1)**: Factura C y sus notas de crédito/débito para monotributistas; Factura A, Factura B y sus notas de crédito/débito para responsables inscriptos.
+Estado actual: **autenticación (WSAA)**, **factura electrónica (WSFEv1)** y **constatación de comprobantes (WSCDC)**. Con WSFEv1 se emiten la Factura C y sus notas de crédito/débito para monotributistas, y la Factura A, la Factura B y sus notas de crédito/débito para responsables inscriptos. Con WSCDC se verifican las facturas recibidas de proveedores.
 
 ## Instalación
 
@@ -72,6 +72,8 @@ O con el ejemplo incluido:
 ```bash
 ARCA_CERT=cert.crt ARCA_KEY=private.key uv run python examples/login.py wsfe
 ```
+
+Todos los ejemplos leen el ambiente de `ARCA_ENV` (`homologacion` por defecto). Si la clave privada tiene contraseña, la toman de `ARCA_KEY_PASSWORD` o, si no está definida, la piden por teclado.
 
 ### Caché de tickets
 
@@ -292,8 +294,57 @@ Path("factura.pdf").write_bytes(pdf)
 - El documento y la condición frente al IVA del receptor, el período de servicio y el CAE salen del `ComprobanteAutorizado`.
 - `copias=("ORIGINAL", "DUPLICADO")` genera una copia por cada etiqueta. Si los ítems no entran en una hoja, se pagina y cada hoja lleva el número de comprobante y "Pág. X/Y".
 - `qr_url(factura)` devuelve solo el texto del QR (`https://www.arca.gob.ar/fe/qr/?p=...`), por si querés armar tu propio diseño.
+- El PDF usa Liberation Sans, incluida en la librería (licencia SIL OFL 1.1, en `arca_client/wsfe/fonts/OFL.txt`). Tiene las mismas métricas que Helvetica/Arial y cubre, además del español, otros alfabetos latinos, el griego, el cirílico y símbolos como € o ™. Los caracteres que no tiene (emojis, chino, japonés, etc.) se reemplazan por `?`.
 
 Para facturar se necesita autorizar el certificado también al servicio `wsfe` (en homologación, desde WSASS). En producción, además, hace falta un punto de venta habilitado para web services.
+
+## Verificar comprobantes de proveedores (WSCDC)
+
+`WSCDC` consulta a ARCA si un comprobante recibido existe y está autorizado con los datos que figuran en él (`ComprobanteConstatar`). Sirve para controlar las facturas de proveedores antes de registrarlas o pagarlas. No emite nada.
+
+Lo más simple es verificar con el texto del código QR de la factura, que trae todos los datos necesarios:
+
+```python
+from arca_client import WSCDC
+
+wscdc = WSCDC(wsaa)  # la CUIT que consulta se toma del certificado
+resultado = wscdc.verify_qr("https://www.arca.gob.ar/fe/qr/?p=eyJ2ZXIiOjEs...")
+if not resultado.aprobada:
+    print("No coincide con ARCA:", resultado.observaciones, resultado.errores)
+```
+
+O con los datos impresos, si no hay QR:
+
+```python
+from datetime import date
+from arca_client import CbteTipo, DocTipo
+
+resultado = wscdc.verify_voucher(
+    cuit_emisor=30712345671,
+    punto_venta=3,
+    tipo=CbteTipo.FACTURA_A,  # o cualquier código de ARCA, ej. 201 (FCE A)
+    numero=42,
+    fecha=date(2026, 10, 19),
+    importe_total="1210.00",
+    codigo_autorizacion="76123456789012",  # el CAE
+    doc_tipo_receptor=DocTipo.CUIT,  # opcional: para facturas a tu nombre, tu CUIT
+    doc_nro_receptor=20123456786,
+)
+```
+
+- `resultado.aprobada` es `True` solo si ARCA devuelve `Resultado = "A"` sin errores. Si no coincide algún dato, es `False` y `observaciones`/`errores` dicen por qué (ej. `100`: el CAE no existe, `105`: el número no corresponde al CAE, `107`: la fecha no corresponde, `110`: el importe no corresponde).
+- **ARCA tolera alrededor de $1 de diferencia en el importe**: en homologación aprobó diferencias de ±1,01 y rechazó ±1,50. Tampoco devuelve el importe registrado. Si necesitás un control exacto, compará además el importe con lo que tenés registrado.
+- Si ARCA no llega a procesar la consulta (por ejemplo, falta de autorización), se lanza `WSCDCError`. Eso no dice nada sobre el comprobante: no se pudo verificar.
+- `modo=ModoAutorizacion.CAEA` (o `CAI`) para comprobantes autorizados por otra vía. `verify_qr` lo toma del QR.
+- `parse_qr_url(texto)` devuelve el JSON del QR (con el importe como `Decimal`), por si querés guardar los datos.
+- Consultas: `tipos_comprobante()`, `tipos_documento()`, `modalidades()` y `estado()` (estado de los servidores; no necesita ticket).
+
+Hay que autorizar el certificado al servicio `wscdc` (en homologación, desde WSASS; en producción, desde el *Administrador de Relaciones de Clave Fiscal*).
+
+```bash
+ARCA_CERT=cert.crt ARCA_KEY=private.key \
+  uv run python examples/verificar_comprobante.py "https://www.arca.gob.ar/fe/qr/?p=..."
+```
 
 ### Errores
 
@@ -311,9 +362,7 @@ Los SoapFault del WSAA se convierten en `WSAAError`, con `code` (ej. `cms.cert.e
   La consulta de si un receptor está obligado y la aceptación o el rechazo de la FCE son de otro web service (WSFECRED), que tampoco está implementado.
 - **Solo pesos.** `MonId` y `MonCotiz` van fijos en `PES` y 1. Para emitir en moneda extranjera faltan la moneda y la cotización como parámetros, `CanMisMonExt` (RG 5616), las consultas `FEParamGetTiposMonedas` y `FEParamGetCotizacion` y el PDF en otra moneda.
 - **Otros comprobantes no soportados**: A con leyenda "Operación sujeta a retención" (51 a 54: factura, notas de débito y crédito, y recibo), recibos (4, 9 y 15) y otros tipos de nicho de `FEParamGetTiposCbte` (notas de venta al contado, liquidaciones, cuentas de venta y líquido producto, etc.).
-
-- **Los ejemplos (`examples/login.py` y `examples/factura_c.py`) no admiten claves privadas con contraseña.** Si la clave se generó con contraseña (por ejemplo, eligiendo esa opción en `arca-setup`), los scripts fallan al cargarla. La librería sí lo soporta con `WSAA(..., key_password=b"...")`; lo que falta es exponerlo en el ejemplo, ya sea con una variable `ARCA_KEY_PASSWORD` o pidiéndola por teclado.
-- **PDF solo con caracteres Latin-1.** El PDF usa las fuentes estándar (Helvetica), que cubren el español (á, ñ, ü, °) pero no emojis ni otros alfabetos: esos caracteres se reemplazan por `?`.
+- **PDF sin emojis ni escrituras asiáticas.** Liberation Sans no las cubre: esos caracteres se reemplazan por `?`.
 
 ## Desarrollo
 
