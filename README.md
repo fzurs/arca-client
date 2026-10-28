@@ -310,7 +310,7 @@ Los SoapFault del WSAA se convierten en `WSAAError`, con `code` (ej. `cms.cert.e
 
   La consulta de si un receptor está obligado y la aceptación o el rechazo de la FCE son de otro web service (WSFECRED), que tampoco está implementado.
 - **Solo pesos.** `MonId` y `MonCotiz` van fijos en `PES` y 1. Para emitir en moneda extranjera faltan la moneda y la cotización como parámetros, `CanMisMonExt` (RG 5616), las consultas `FEParamGetTiposMonedas` y `FEParamGetCotizacion` y el PDF en otra moneda.
-- **Otros comprobantes no soportados**: Factura M y A "operación sujeta a retención" (51 a 53) y recibos (4, 9 y 15).
+- **Otros comprobantes no soportados**: A con leyenda "Operación sujeta a retención" (51 a 54: factura, notas de débito y crédito, y recibo), recibos (4, 9 y 15) y otros tipos de nicho de `FEParamGetTiposCbte` (notas de venta al contado, liquidaciones, cuentas de venta y líquido producto, etc.).
 
 - **Los ejemplos (`examples/login.py` y `examples/factura_c.py`) no admiten claves privadas con contraseña.** Si la clave se generó con contraseña (por ejemplo, eligiendo esa opción en `arca-setup`), los scripts fallan al cargarla. La librería sí lo soporta con `WSAA(..., key_password=b"...")`; lo que falta es exponerlo en el ejemplo, ya sea con una variable `ARCA_KEY_PASSWORD` o pidiéndola por teclado.
 - **PDF solo con caracteres Latin-1.** El PDF usa las fuentes estándar (Helvetica), que cubren el español (á, ñ, ü, °) pero no emojis ni otros alfabetos: esos caracteres se reemplazan por `?`.
