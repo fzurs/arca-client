@@ -17,6 +17,7 @@ arca-setup = "arca_client.setup_wizard:main"
 
 [project.optional-dependencies]
 pdf = [
+    "fonttools>=4.34",
     "fpdf2>=2.8",
     "segno>=1.6",
 ]

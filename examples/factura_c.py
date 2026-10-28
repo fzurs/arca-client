@@ -6,6 +6,7 @@ Uso:
 
 Los datos del emisor para el PDF se leen de ARCA_RAZON_SOCIAL, ARCA_DOMICILIO,
 ARCA_INICIO_ACTIVIDADES (AAAA-MM-DD) y ARCA_IIBB; si faltan se usan valores de ejemplo.
+Si la clave tiene contraseña, se toma de ARCA_KEY_PASSWORD o se pide por teclado.
 """
 
 import os
@@ -13,14 +14,14 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from arca_client import WSAA, WSFE, Emisor, Environment, Item, WSFEError, render_invoice_pdf
+from _wsaa import wsaa_desde_entorno
+
+from arca_client import WSFE, Emisor, Item, WSFEError, render_invoice_pdf
 
 importe = sys.argv[1] if len(sys.argv) > 1 else "1000.00"
 punto_venta = int(sys.argv[2]) if len(sys.argv) > 2 else 1
-env = Environment(os.environ.get("ARCA_ENV", "homologacion"))
-
-# TODO: soportar claves con contraseña (ver "Limitaciones conocidas" en el README).
-wsaa = WSAA(os.environ["ARCA_CERT"], os.environ["ARCA_KEY"], env)
+wsaa = wsaa_desde_entorno()
+env = wsaa.env
 wsfe = WSFE(wsaa)
 
 try:

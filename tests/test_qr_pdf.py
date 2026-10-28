@@ -170,9 +170,11 @@ def test_item_validaciones():
         Item("X", "10", cantidad=0)
 
 
-def test_pdf_caracteres_fuera_de_latin1():
-    pdf = render_invoice_pdf(_factura(), EMISOR, [Item("Café ☕ – “especial”", "1500.50")])
-    assert 'Café ? - "especial"' in _text(pdf)
+def test_pdf_unicode():
+    item = Item("Café – “especial” 5 € ™ Ωmega Жук ☕ 中", "1500.50")
+    text = _text(render_invoice_pdf(_factura(), EMISOR, [item]))
+    # Liberation Sans cubre Latin, griego, cirílico y símbolos comunes; el resto, "?".
+    assert "Café – “especial” 5 € ™ Ωmega Жук ? ?" in text
 
 
 def test_leyenda_consumidor_final():

@@ -441,6 +441,28 @@ def test_transport_tiene_timeout_de_operacion():
     assert transport.load_timeout == 12
 
 
+def test_transport_produccion_dh_chica_solo_donde_hace_falta():
+    import ssl
+
+    from arca_client.environments import WSAA_URLS, WSCDC_URLS, WSFE_URLS, Environment
+    from arca_client.transport import _LowSecurityAdapter, make_transport
+
+    prod = Environment.PRODUCCION
+    session = make_transport(prod, 12).session
+    for url in (WSFE_URLS[prod], WSCDC_URLS[prod]):
+        assert isinstance(session.get_adapter(url), _LowSecurityAdapter), url
+    assert not isinstance(session.get_adapter(WSAA_URLS[prod]), _LowSecurityAdapter)
+    assert not isinstance(session.get_adapter("https://otro.example.com/"), _LowSecurityAdapter)
+
+    homo = make_transport(Environment.HOMOLOGACION, 12).session
+    assert isinstance(homo.get_adapter(WSAA_URLS[Environment.HOMOLOGACION]), _LowSecurityAdapter)
+
+    # Se sigue verificando el certificado y el host.
+    adapter = session.get_adapter(WSFE_URLS[prod])
+    ctx = adapter.poolmanager.connection_pool_kw["ssl_context"]
+    assert ctx.verify_mode is ssl.CERT_REQUIRED and ctx.check_hostname
+
+
 @pytest.mark.parametrize(
     ("kwargs", "error"),
     [

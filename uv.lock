@@ -19,6 +19,8 @@ dependencies = [
 
 [package.optional-dependencies]
 pdf = [
+    { name = "fonttools", version = "4.65.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "fonttools", version = "4.67.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "fpdf2" },
     { name = "segno" },
 ]
@@ -35,6 +37,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=42" },
+    { name = "fonttools", marker = "extra == 'pdf'", specifier = ">=4.34" },
     { name = "fpdf2", marker = "extra == 'pdf'", specifier = ">=2.8" },
     { name = "lxml", specifier = ">=5" },
     { name = "requests", specifier = ">=2.31" },

@@ -26,3 +26,13 @@ WSFE_URLS = {
 
 def wsfe_wsdl(env: Environment) -> str:
     return f"{WSFE_URLS[env]}?WSDL"
+
+
+WSCDC_URLS = {
+    Environment.HOMOLOGACION: "https://wswhomo.afip.gov.ar/WSCDC/service.asmx",
+    Environment.PRODUCCION: "https://servicios1.afip.gov.ar/WSCDC/service.asmx",
+}
+
+
+def wscdc_wsdl(env: Environment) -> str:
+    return f"{WSCDC_URLS[env]}?WSDL"
