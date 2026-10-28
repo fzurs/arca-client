@@ -301,7 +301,16 @@ Los SoapFault del WSAA se convierten en `WSAAError`, con `code` (ej. `cms.cert.e
 
 ## Limitaciones conocidas
 
-- **Comprobantes no soportados**: Factura de Crédito Electrónica MiPyME (tipos 201 en adelante; ARCA rechaza la Factura A a una gran empresa por encima del monto mínimo de FCE), Factura M y A "operación sujeta a retención" y comprobantes en moneda extranjera.
+- **Factura de Crédito Electrónica MiPyME (FCE, tipos 201 a 213) no soportada.** Una MiPyME que le vende a una gran empresa por encima del monto mínimo vigente está obligada a emitir FCE, y ARCA rechaza la Factura A, B o C común. Para soportarla faltan:
+  - los tipos 201/202/203 (A), 206/207/208 (B) y 211/212/213 (C);
+  - el envío de `Opcionales`: CBU (2101) o alias (2102) del emisor y la modalidad de transferencia (27: `SCA` o `ADC`);
+  - el vencimiento del pago obligatorio también para productos;
+  - en las notas, el comprobante asociado con CUIT y fecha y la anulación (22: `S`/`N`);
+  - las leyendas propias en el PDF.
+
+  La consulta de si un receptor está obligado y la aceptación o el rechazo de la FCE son de otro web service (WSFECRED), que tampoco está implementado.
+- **Solo pesos.** `MonId` y `MonCotiz` van fijos en `PES` y 1. Para emitir en moneda extranjera faltan la moneda y la cotización como parámetros, `CanMisMonExt` (RG 5616), las consultas `FEParamGetTiposMonedas` y `FEParamGetCotizacion` y el PDF en otra moneda.
+- **Otros comprobantes no soportados**: Factura M y A "operación sujeta a retención" (51 a 53) y recibos (4, 9 y 15).
 
 - **Los ejemplos (`examples/login.py` y `examples/factura_c.py`) no admiten claves privadas con contraseña.** Si la clave se generó con contraseña (por ejemplo, eligiendo esa opción en `arca-setup`), los scripts fallan al cargarla. La librería sí lo soporta con `WSAA(..., key_password=b"...")`; lo que falta es exponerlo en el ejemplo, ya sea con una variable `ARCA_KEY_PASSWORD` o pidiéndola por teclado.
 - **PDF solo con caracteres Latin-1.** El PDF usa las fuentes estándar (Helvetica), que cubren el español (á, ñ, ü, °) pero no emojis ni otros alfabetos: esos caracteres se reemplazan por `?`.
