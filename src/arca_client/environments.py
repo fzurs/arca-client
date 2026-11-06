@@ -36,3 +36,15 @@ WSCDC_URLS = {
 
 def wscdc_wsdl(env: Environment) -> str:
     return f"{WSCDC_URLS[env]}?WSDL"
+
+
+# El manual de la Constancia de Inscripción indica hosts `*.arca.gov.ar`, pero no conectaron
+# en la prueba; los `*.afip.gov.ar` sí responden.
+WSPCI_URLS = {
+    Environment.HOMOLOGACION: "https://awshomo.afip.gov.ar/sr-padron/webservices/personaServiceA5",
+    Environment.PRODUCCION: "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5",
+}
+
+
+def wspci_wsdl(env: Environment) -> str:
+    return f"{WSPCI_URLS[env]}?WSDL"

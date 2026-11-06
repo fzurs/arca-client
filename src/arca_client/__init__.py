@@ -1,6 +1,14 @@
 from .certificates import certificate_paths, cuit_from_certificate
 from .environments import Environment
-from .exceptions import ArcaError, WSAAError, WSCDCError, WSFEConnectionError, WSFEError
+from .exceptions import (
+    ArcaError,
+    PersonaNoEncontrada,
+    WSAAError,
+    WSCDCError,
+    WSFEConnectionError,
+    WSFEError,
+    WSPCIError,
+)
 from .wsaa import WSAA, AccessTicket, FileTicketCache, MemoryTicketCache
 from .wscdc import WSCDC, Constatacion, ModoAutorizacion
 from .wsfe import (
@@ -23,22 +31,28 @@ from .wsfe import (
     qr_url,
     render_invoice_pdf,
 )
+from .wspci import WSPCI, Categoria, Constancia, Domicilio, Impuesto, TipoPersona
 
 __all__ = [
     "WSAA",
     "WSCDC",
     "WSFE",
+    "WSPCI",
     "AccessTicket",
     "Alicuota",
     "ArcaError",
+    "Categoria",
     "CbteTipo",
     "ComprobanteAsociado",
     "ComprobanteAutorizado",
     "Concepto",
+    "Constancia",
     "Constatacion",
     "CondicionIVAReceptor",
     "DocTipo",
+    "Domicilio",
     "Emisor",
+    "Impuesto",
     "Item",
     "IvaAlicuota",
     "Receptor",
@@ -46,12 +60,15 @@ __all__ = [
     "FileTicketCache",
     "MemoryTicketCache",
     "ModoAutorizacion",
+    "PersonaNoEncontrada",
+    "TipoPersona",
     "TipoTributo",
     "Tributo",
     "WSAAError",
     "WSCDCError",
     "WSFEConnectionError",
     "WSFEError",
+    "WSPCIError",
     "certificate_paths",
     "cuit_from_certificate",
     "neto_por_alicuota",

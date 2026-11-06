@@ -2,7 +2,7 @@
 
 Cliente Python para los web services SOAP de **ARCA** (ex AFIP).
 
-Estado actual: **autenticación (WSAA)**, **factura electrónica (WSFEv1)** y **constatación de comprobantes (WSCDC)**. Con WSFEv1 se emiten la Factura C y sus notas de crédito/débito para monotributistas, y la Factura A, la Factura B y sus notas de crédito/débito para responsables inscriptos. Con WSCDC se verifican las facturas recibidas de proveedores.
+Estado actual: **autenticación (WSAA)**, **factura electrónica (WSFEv1)**, **constatación de comprobantes (WSCDC)** y **constancia de inscripción (WSPCI)**. Con WSFEv1 se emiten la Factura C y sus notas de crédito/débito para monotributistas, y la Factura A, la Factura B y sus notas de crédito/débito para responsables inscriptos. Con WSCDC se verifican las facturas recibidas de proveedores. Con WSPCI se obtienen los datos de un contribuyente a partir de su CUIT.
 
 ## Instalación
 
@@ -346,6 +346,65 @@ ARCA_CERT=cert.crt ARCA_KEY=private.key \
   uv run python examples/verificar_comprobante.py "https://www.arca.gob.ar/fe/qr/?p=..."
 ```
 
+## Datos de un contribuyente (WSPCI, Constancia de Inscripción)
+
+`WSPCI` obtiene de ARCA los datos de una CUIT para completar la ficha de un cliente: nombre o razón social, tipo de persona, domicilio fiscal e impuestos. Es solo lectura.
+
+```python
+from arca_client import WSPCI, PersonaNoEncontrada
+
+wspci = WSPCI(wsaa)  # la CUIT que consulta se toma del certificado (o pasala con cuit=...)
+
+try:
+    c = wspci.get_constancia("20-12345678-6")
+except PersonaNoEncontrada:
+    ...  # ARCA no registra esa CUIT
+
+c.denominacion  # la razón social o "APELLIDO NOMBRE"
+c.tipo_persona  # TipoPersona.FISICA o TipoPersona.JURIDICA
+c.activa  # True solo si estado_clave == "ACTIVO"
+str(c.domicilio_fiscal)  # "AV FICTICIA 123, VILLA INVENTADA, 1234, BUENOS AIRES"
+c.condicion_iva  # CondicionIVAReceptor o None
+c.impuestos, c.impuestos_monotributo, c.categoria_monotributo
+
+wspci.dummy()  # {"appserver": "OK", "authserver": "OK", "dbserver": "OK"}, no pide ticket
+```
+
+### Condición frente al IVA
+
+`condicion_iva` **es una deducción de esta librería, no un dato de ARCA**: el manual no define una tabla de condición frente al IVA. Por eso nunca adivina, y hay que estar preparado para recibir `None`:
+
+| Situación | `condicion_iva` |
+|---|---|
+| Impuesto 20 vigente en `impuestos_monotributo`, sin 30 | `RESPONSABLE_MONOTRIBUTO` (6) |
+| Impuesto 30 vigente en `impuestos`, sin 20 | `IVA_RESPONSABLE_INSCRIPTO` (1) |
+| Cualquier error en `errores_constancia`, `errores_regimen_general` o `errores_monotributo` | `None` |
+| Impuestos 20 y 30 a la vez, o ninguno de los dos | `None` |
+
+Un impuesto está vigente si su estado es `"ACTIVO"` o si ARCA no informa estado. Sin impuestos **no** se deduce "consumidor final": esa decisión queda en la aplicación. Tampoco se devuelven `IVA_SUJETO_EXENTO` ni `MONOTRIBUTISTA_SOCIAL`, porque no se confirmó cómo reconocerlos; un monotributista social puede aparecer como `RESPONSABLE_MONOTRIBUTO`.
+
+### Errores
+
+Que falte un dato por un error no significa que no exista:
+
+| Respuesta de ARCA | Resultado |
+|---|---|
+| CUIT inválida (dígito verificador) | `ValueError`, sin pedir ticket ni llamar a ARCA |
+| `No existe persona con ese Id` (SOAP Fault o `errorConstancia` sin datos generales) | `PersonaNoEncontrada` |
+| Otro `errorConstancia` (CUIT limitada, inactiva, etc.) | `Constancia` con `errores_constancia` y el nombre y la CUIT que trae el error |
+| `errorRegimenGeneral` o `errorMonotributo` | `Constancia` con `errores_regimen_general` o `errores_monotributo` |
+| Otro SOAP Fault | `WSPCIError`, con los textos en `errores` |
+| Respuesta sin datos generales ni errores | `ArcaError` |
+
+`PersonaNoEncontrada` hereda de `WSPCIError` y esta de `ArcaError`. `WSAAError` y los errores de conexión se propagan sin envolver.
+
+### Autorizar el certificado
+
+Cada servicio se autoriza aparte. Un certificado que ya factura con `wsfe` no queda habilitado para este: ARCA responde `coe.notAuthorized` hasta autorizarlo.
+
+- **Homologación**: en WSASS, «Crear autorización a servicio», servicio `ws_sr_constancia_inscripcion`.
+- **Producción**: en el *Administrador de Relaciones de Clave Fiscal*, «Nueva Relación», *ARCA › Web Services*, y elegir el servicio de la Constancia de Inscripción (el nombre con que aparece en esa lista todavía no se verificó).
+
 ### Errores
 
 Los SoapFault del WSAA se convierten en `WSAAError`, con `code` (ej. `cms.cert.expired`) y `retryable`. Según la especificación, solo se puede reintentar ante `wsaa.*` y `wsn.unavailable`.
@@ -363,6 +422,7 @@ Los SoapFault del WSAA se convierten en `WSAAError`, con `code` (ej. `cms.cert.e
 - **Solo pesos.** `MonId` y `MonCotiz` van fijos en `PES` y 1. Para emitir en moneda extranjera faltan la moneda y la cotización como parámetros, `CanMisMonExt` (RG 5616), las consultas `FEParamGetTiposMonedas` y `FEParamGetCotizacion` y el PDF en otra moneda.
 - **Otros comprobantes no soportados**: A con leyenda "Operación sujeta a retención" (51 a 54: factura, notas de débito y crédito, y recibo), recibos (4, 9 y 15) y otros tipos de nicho de `FEParamGetTiposCbte` (notas de venta al contado, liquidaciones, cuentas de venta y líquido producto, etc.).
 - **PDF sin emojis ni escrituras asiáticas.** Liberation Sans no las cubre: esos caracteres se reemplazan por `?`.
+- **WSPCI sin probar con datos reales.** Se implementó según el WSDL y el manual; `dummy` funciona en homologación, pero la consulta de una constancia todavía no se probó contra ARCA. Quedan sin confirmar la forma real del error de una CUIT inexistente (se cubren las dos posibles), los valores de `estadoImpuesto` y `esSucesion`, y cómo se ven un exento, un monotributista social y una CUIL. Si `estadoImpuesto` no fuera `"ACTIVO"`, `condicion_iva` devolvería `None`. Se puede probar con `tests/integration/test_wspci.py`.
 
 ## Desarrollo
 

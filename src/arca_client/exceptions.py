@@ -55,6 +55,21 @@ class WSCDCError(ArcaError):
         return [m.code for m in self.errores]
 
 
+class WSPCIError(ArcaError):
+    """WSPCI respondió con un SOAP Fault: no se pudo obtener la constancia.
+
+    No dice nada sobre el contribuyente. `errores` es una lista de textos.
+    """
+
+    def __init__(self, errores: list[str]):
+        self.errores = errores
+        super().__init__("; ".join(errores) or "WSPCI no devolvió detalle")
+
+
+class PersonaNoEncontrada(WSPCIError):
+    """ARCA no registra ninguna persona con esa CUIT."""
+
+
 class WSFEConnectionError(ArcaError):
     """Se interrumpió la comunicación al pedir el CAE.
 
