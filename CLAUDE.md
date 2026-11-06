@@ -22,7 +22,7 @@ Código, docstrings, mensajes y README en español.
 - **Ticket de acceso (TA)**: dura 12 h y ARCA no permite pedir otro mientras haya uno vigente
   (`coe.alreadyAuthenticated`). No borrar `~/.cache/arca-client/tickets/` ni forzar `force=True`.
 - **Datos personales**: el repo es público. Nunca commitear `certs/`, PDFs generados, CUIT ni CAE
-  reales (en tests usar valores ficticios, ej. CUIT 20123456786). Revisar el diff antes de cada commit.
+  reales (en tests usar valores ficticios, ej. CUIT 30712345671; 20123456786 existe en el padrón de homologación). Revisar el diff antes de cada commit.
 - Importes siempre `Decimal`/`str`/`int`, nunca `float`; redondeo half even (criterio de ARCA).
 - `SECLEVEL=1` en TLS (`transport.py`): en homologación para todo y en producción solo para
   `servicios1.afip.gov.ar` (WSFEv1, WSCDC; el WSAA no lo necesita). Todas las llamadas usan `operation_timeout`.
