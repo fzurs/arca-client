@@ -39,7 +39,7 @@ def _t(name, **kwargs):
     return _ZEEP.get_type(f"ns0:{name}")(**kwargs)
 
 
-def _impuesto(id_impuesto, estado="ACTIVO", descripcion="UN IMPUESTO", periodo=202001):
+def _impuesto(id_impuesto, estado="AC", descripcion="UN IMPUESTO", periodo=202001):
     return _t(
         "impuesto",
         idImpuesto=id_impuesto,
@@ -123,7 +123,7 @@ def test_persona_fisica_responsable_inscripta():
     assert c.activa
     assert c.sucesion is False
     assert c.fecha_fallecimiento is None
-    assert c.impuestos == [Impuesto(30, "IVA", "ACTIVO", 199807)]
+    assert c.impuestos == [Impuesto(30, "IVA", "AC", 199807)]
     assert c.impuestos_monotributo == []
     assert c.categoria_monotributo is None
     assert c.domicilio_fiscal == Domicilio(
@@ -172,6 +172,7 @@ def test_monotributista_con_categoria():
         {"general": [_impuesto(30), _impuesto(20)]},
         {"monotributo": [_impuesto(30), _impuesto(20)]},
         {"general": [_impuesto(30, estado="BAJA")]},
+        {"general": [_impuesto(30, estado="NA")]},
         {"general": [_impuesto(30, estado="activo")]},
         {"monotributo": [_impuesto(20, estado="BAJA")]},
         {"general": [_impuesto(20)]},  # 20 fuera de la sección de monotributo
@@ -184,9 +185,30 @@ def test_condicion_iva_no_adivina(kwargs):
     assert _con_impuestos(**kwargs).condicion_iva is None
 
 
-def test_estado_ausente_cuenta_como_vigente():
-    c = _con_impuestos(general=[_impuesto(30, estado=None)])
+@pytest.mark.parametrize("estado", ["AC", "ACTIVO", None])
+def test_estados_vigentes(estado):
+    c = _con_impuestos(general=[_impuesto(30, estado=estado)])
     assert c.condicion_iva is CondicionIVAReceptor.IVA_RESPONSABLE_INSCRIPTO
+    c = _con_impuestos(monotributo=[_impuesto(20, estado=estado)])
+    assert c.condicion_iva is CondicionIVAReceptor.RESPONSABLE_MONOTRIBUTO
+
+
+def test_estado_vigente_no_cambia_la_constancia_activa():
+    # "AC" vale para `estadoImpuesto`; `estadoClave` usa "ACTIVO".
+    assert not _parsear_constancia(_persona(datosGenerales=_fisica(estadoClave="AC"))).activa
+
+
+@pytest.mark.parametrize("descripcion", ["A MONOTRIBUTO SOCIAL AGROP.", "a monotributo social"])
+def test_monotributo_social_no_se_clasifica(descripcion):
+    categoria = _t("categoria", idCategoria=61, descripcionCategoria=descripcion)
+    c = _parsear_constancia(
+        _persona(
+            datosGenerales=_fisica(),
+            datosMonotributo=_monotributo(_impuesto(20), categoria=categoria),
+        )
+    )
+    assert c.categoria_monotributo.descripcion == descripcion
+    assert c.condicion_iva is None
 
 
 def test_impuesto_no_vigente_no_contradice():
@@ -554,7 +576,7 @@ def test_respuesta_xml_de_get_persona(wsaa):
           <datosRegimenGeneral>
             <impuesto>
               <descripcionImpuesto>IVA</descripcionImpuesto>
-              <estadoImpuesto>ACTIVO</estadoImpuesto><idImpuesto>30</idImpuesto>
+              <estadoImpuesto>AC</estadoImpuesto><idImpuesto>30</idImpuesto>
             </impuesto>
           </datosRegimenGeneral>
         </personaReturn></ns2:getPersona_v2Response>""",

@@ -356,7 +356,7 @@ from arca_client import WSPCI, PersonaNoEncontrada
 wspci = WSPCI(wsaa)  # la CUIT que consulta se toma del certificado (o pasala con cuit=...)
 
 try:
-    c = wspci.get_constancia("20-12345678-6")
+    c = wspci.get_constancia("30-71234567-1")
 except PersonaNoEncontrada:
     ...  # ARCA no registra esa CUIT
 
@@ -380,8 +380,11 @@ wspci.dummy()  # {"appserver": "OK", "authserver": "OK", "dbserver": "OK"}, no p
 | Impuesto 30 vigente en `impuestos`, sin 20 | `IVA_RESPONSABLE_INSCRIPTO` (1) |
 | Cualquier error en `errores_constancia`, `errores_regimen_general` o `errores_monotributo` | `None` |
 | Impuestos 20 y 30 a la vez, o ninguno de los dos | `None` |
+| Categoría de monotributo social | `None` |
 
-Un impuesto está vigente si su estado es `"ACTIVO"` o si ARCA no informa estado. Sin impuestos **no** se deduce "consumidor final": esa decisión queda en la aplicación. Tampoco se devuelven `IVA_SUJETO_EXENTO` ni `MONOTRIBUTISTA_SOCIAL`, porque no se confirmó cómo reconocerlos; un monotributista social puede aparecer como `RESPONSABLE_MONOTRIBUTO`.
+Un impuesto está vigente si su estado es `"AC"` (el valor que devuelve homologación), `"ACTIVO"` o si ARCA no informa estado; cualquier otro, como `"NA"`, no cuenta. Sin impuestos **no** se deduce "consumidor final": esa decisión queda en la aplicación.
+
+Tampoco se devuelven `IVA_SUJETO_EXENTO` ni `MONOTRIBUTISTA_SOCIAL`. Si la categoría de monotributo contiene `SOCIAL` (ej. `A MONOTRIBUTO SOCIAL AGROP.`), `condicion_iva` es `None`: esa forma de reconocerlo sale de un único caso de homologación, y `categoria_monotributo` queda disponible para que la aplicación decida.
 
 ### Errores
 
@@ -422,7 +425,7 @@ Los SoapFault del WSAA se convierten en `WSAAError`, con `code` (ej. `cms.cert.e
 - **Solo pesos.** `MonId` y `MonCotiz` van fijos en `PES` y 1. Para emitir en moneda extranjera faltan la moneda y la cotización como parámetros, `CanMisMonExt` (RG 5616), las consultas `FEParamGetTiposMonedas` y `FEParamGetCotizacion` y el PDF en otra moneda.
 - **Otros comprobantes no soportados**: A con leyenda "Operación sujeta a retención" (51 a 54: factura, notas de débito y crédito, y recibo), recibos (4, 9 y 15) y otros tipos de nicho de `FEParamGetTiposCbte` (notas de venta al contado, liquidaciones, cuentas de venta y líquido producto, etc.).
 - **PDF sin emojis ni escrituras asiáticas.** Liberation Sans no las cubre: esos caracteres se reemplazan por `?`.
-- **WSPCI sin probar con datos reales.** Se implementó según el WSDL y el manual; `dummy` funciona en homologación, pero la consulta de una constancia todavía no se probó contra ARCA. Quedan sin confirmar la forma real del error de una CUIT inexistente (se cubren las dos posibles), los valores de `estadoImpuesto` y `esSucesion`, y cómo se ven un exento, un monotributista social y una CUIL. Si `estadoImpuesto` no fuera `"ACTIVO"`, `condicion_iva` devolvería `None`. Se puede probar con `tests/integration/test_wspci.py`.
+- **WSPCI probado solo en homologación y con pocos casos.** Falta probarlo en producción. Tampoco se confirmó si el impuesto 32 es IVA exento ni cómo responde ARCA con una CUIL. Otros estados de impuesto, además de `AC` y `NA`, se tratan como no vigentes. Se puede probar con `tests/integration/test_wspci.py`.
 
 ## Desarrollo
 

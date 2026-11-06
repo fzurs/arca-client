@@ -23,6 +23,9 @@ SERVICE = "ws_sr_constancia_inscripcion"
 _PERSONA_INEXISTENTE = "no existe persona con ese id"
 _IMPUESTO_MONOTRIBUTO = 20
 _IMPUESTO_IVA = 30
+# En homologación, `estadoImpuesto` llega como "AC" (y "NA" en un impuesto no vigente), no como
+# "ACTIVO", que es el valor de `estadoClave`.
+_ESTADOS_VIGENTES = ("AC", "ACTIVO", None)
 _ERROR_SIN_DETALLE = "ARCA informó un error sin detalle"
 
 
@@ -110,8 +113,14 @@ class Constancia:
         frente al IVA. Por eso nunca adivina. Con errores, sin impuestos o con impuestos
         contradictorios devuelve ``None``; en particular, no deduce "consumidor final" por
         falta de datos (esa decisión queda en la aplicación).
+
+        Tampoco clasifica al monotributo social: se reconoce solo por el texto de la
+        categoría (visto en un único caso de homologación), así que da ``None``.
         """
         if self.errores_constancia or self.errores_regimen_general or self.errores_monotributo:
+            return None
+        categoria = self.categoria_monotributo
+        if categoria and "SOCIAL" in (categoria.descripcion or "").upper():
             return None
         general = {i.id for i in self.impuestos if _vigente(i)}
         monotributo = {i.id for i in self.impuestos_monotributo if _vigente(i)}
@@ -130,8 +139,8 @@ class WSPCI:
 
     >>> wsaa = WSAA("cert.crt", "private.key", Environment.HOMOLOGACION)
     >>> wspci = WSPCI(wsaa)
-    >>> wspci.get_constancia("20-12345678-6").denominacion
-    'PEREZ JUAN'
+    >>> wspci.get_constancia("30-71234567-1").denominacion
+    'EMPRESA INVENTADA SA'
     """
 
     def __init__(self, wsaa: WSAA, cuit: str | int | None = None, *, timeout: float = 30) -> None:
@@ -250,7 +259,7 @@ def _error_de_fault(fault: Fault) -> WSPCIError:
 
 
 def _vigente(impuesto: Impuesto) -> bool:
-    return impuesto.estado in ("ACTIVO", None)
+    return impuesto.estado in _ESTADOS_VIGENTES
 
 
 def _tiene_datos_generales(generales) -> bool:

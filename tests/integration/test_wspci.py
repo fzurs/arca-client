@@ -7,7 +7,8 @@ ARCA responde ``coe.notAuthorized``.
 Los datos reales no se guardan en el repositorio. Las CUIT a consultar se pasan por entorno:
 
 - ``ARCA_TEST_KEY_PASSWORD``: contraseña de la clave, si tiene.
-- ``ARCA_TEST_CUITS``: CUIT a consultar, separadas por comas (por defecto ``ARCA_TEST_CUIT``).
+- ``ARCA_TEST_CUITS``: CUIT a consultar, separadas por comas. Sin ella, ``test_constancia`` se
+  saltea: la CUIT del certificado no tiene por qué estar en el padrón de homologación.
 - ``ARCA_TEST_CUIL``: una CUIL.
 - ``ARCA_TEST_CUIT_MONOTRIBUTO_SOCIAL``: un monotributista social.
 
@@ -32,8 +33,9 @@ pytestmark = pytest.mark.skipif(
     reason="Faltan ARCA_TEST_CERT, ARCA_TEST_KEY o ARCA_TEST_CUIT",
 )
 
-# Dígito verificador válido, pero no debería corresponder a nadie.
-CUIT_INEXISTENTE = 20000000001
+# Dígito verificador válido y sin persona en homologación: ahí responde con un SOAP Fault.
+# Otras CUIT que parecen ficticias existen: revisar antes de elegir una.
+CUIT_INEXISTENTE = 30712345671
 
 
 @pytest.fixture(scope="module")
@@ -69,19 +71,16 @@ def test_dummy(wspci):
     assert wspci.dummy() == {"appserver": "OK", "authserver": "OK", "dbserver": "OK"}
 
 
-@pytest.mark.parametrize(
-    "cuit", [c for c in os.environ.get("ARCA_TEST_CUITS", "").split(",") if c] or [None]
-)
+@pytest.mark.parametrize("cuit", [c for c in os.environ.get("ARCA_TEST_CUITS", "").split(",") if c])
 def test_constancia(wspci, cuit):
     """Preguntas 2 y 3: valores de ``estadoImpuesto`` y si el impuesto 32 es IVA exento."""
-    cuit = cuit or os.environ["ARCA_TEST_CUIT"]
     constancia = wspci.get_constancia(cuit)
     assert constancia.cuit == cuit.replace("-", "")
     print(f"\nConstancia: {_forma(constancia)}")
 
 
 def test_cuit_inexistente(wspci):
-    """Pregunta 1: ¿SOAP Fault o ``errorConstancia``? La librería cubre las dos formas."""
+    """Pregunta 1: en homologación es un SOAP Fault. La librería cubre las dos formas."""
     try:
         respuesta = wspci._service().getPersona_v2(**wspci._auth(), idPersona=CUIT_INEXISTENTE)
     except Fault as fault:

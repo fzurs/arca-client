@@ -8,7 +8,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 
 - **Constancia de Inscripción (WSPCI)**: `WSPCI.get_constancia(cuit)` devuelve una `Constancia` con los datos del contribuyente (`denominacion`, `tipo_persona`, `domicilio_fiscal`, `impuestos`, `categoria_monotributo`, etc.). `WSPCI.dummy()` consulta el estado de los servidores sin pedir ticket. Nuevos `Domicilio`, `Impuesto`, `Categoria`, `TipoPersona`, `WSPCIError` y `PersonaNoEncontrada`.
 - `Constancia.condicion_iva`: condición frente al IVA deducida de los impuestos, o `None` si no es segura. La deducción es de esta librería, no de ARCA.
-- `tests/integration/test_wspci.py`: pruebas contra homologación, que se saltean sin `ARCA_TEST_CERT`, `ARCA_TEST_KEY` y `ARCA_TEST_CUIT`.
+- `tests/integration/test_wspci.py`: pruebas contra homologación, que se saltean sin `ARCA_TEST_CERT`, `ARCA_TEST_KEY` y `ARCA_TEST_CUIT`. Las CUIT a consultar se indican con `ARCA_TEST_CUITS`.
 
 ### Para actualizar
 
@@ -16,7 +16,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 
 ### Sin confirmar
 
-- `get_constancia` todavía no se probó contra ARCA, porque el certificado de prueba no está autorizado al servicio; `dummy` sí funciona en homologación. Ver "Limitaciones conocidas" en el README.
+- Probado solo en homologación y con pocos casos, no en producción. Tampoco se confirmó si el impuesto 32 es IVA exento ni cómo responde ARCA con una CUIL. Ver "Limitaciones conocidas" en el README.
 
 ## [0.4.0] - 2026-10-27
 
