@@ -27,7 +27,7 @@ from arca_client import (
 )
 from arca_client.wsfe.qr import qr_payload
 
-# Ejemplo de la especificación oficial del QR (versión 1).
+# Ejemplo de la especificación oficial del QR (versión 1), con una CUIT ficticia como receptor.
 SPEC_JSON = {
     "ver": 1,
     "fecha": "2020-10-13",
@@ -39,14 +39,14 @@ SPEC_JSON = {
     "moneda": "DOL",
     "ctz": 65,
     "tipoDocRec": 80,
-    "nroDocRec": 20000000001,
+    "nroDocRec": 30712345671,
     "tipoCodAut": "E",
     "codAut": 70417054367476,
 }
 SPEC_B64 = (
     "eyJ2ZXIiOjEsImZlY2hhIjoiMjAyMC0xMC0xMyIsImN1aXQiOjMwMDAwMDAwMDA3LCJwdG9WdGEiOjEwLCJ0aXBvQ21w"
     "IjoxLCJucm9DbXAiOjk0LCJpbXBvcnRlIjoxMjEwMCwibW9uZWRhIjoiRE9MIiwiY3R6Ijo2NSwidGlwb0RvY1JlYyI6"
-    "ODAsIm5yb0RvY1JlYyI6MjAwMDAwMDAwMDEsInRpcG9Db2RBdXQiOiJFIiwiY29kQXV0Ijo3MDQxNzA1NDM2NzQ3Nn0="
+    "ODAsIm5yb0RvY1JlYyI6MzA3MTIzNDU2NzEsInRpcG9Db2RBdXQiOiJFIiwiY29kQXV0Ijo3MDQxNzA1NDM2NzQ3Nn0="
 )
 
 
