@@ -401,10 +401,10 @@ def test_verify_qr_cuit_cuil_y_cdi_son_la_misma_clave(wscdc):
     url = qr_url(_comprobante(doc_tipo=DocTipo.CUIL, doc_nro=MI_CUIT))
     wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=MI_CUIT)
     wscdc.verify_qr(url, doc_tipo_receptor=87, doc_nro_receptor=MI_CUIT)
-    # A ARCA va lo que indicó quien llama, no lo del QR.
+    # Mismo número: a ARCA va el documento del QR (el registrado en el comprobante).
     (_, cuit), (_, cdi) = wscdc.fake.requests
-    assert cuit["DocTipoReceptor"] == "80" and cuit["DocNroReceptor"] == str(MI_CUIT)
-    assert cdi["DocTipoReceptor"] == "87"
+    assert cuit["DocTipoReceptor"] == "86" and cuit["DocNroReceptor"] == str(MI_CUIT)
+    assert cdi["DocTipoReceptor"] == "86"
     with pytest.raises(ValueError, match="no está emitido a ese documento"):
         wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=OTRA_CUIT)
     assert len(wscdc.fake.requests) == 2
@@ -422,6 +422,42 @@ def test_verify_qr_receptor_igual_al_indicado(wscdc):
     assert r.aprobada
     _, req = wscdc.fake.requests[0]
     assert req["DocTipoReceptor"] == "80" and req["DocNroReceptor"] == str(MI_CUIT)
+    assert (r.comprobante.doc_tipo_receptor, r.comprobante.doc_nro_receptor) == (
+        80,
+        str(MI_CUIT),
+    )
+
+
+def test_verify_qr_cuil_en_el_qr_y_cuit_indicado_envia_el_del_qr(wscdc):
+    url = qr_url(_comprobante(doc_tipo=DocTipo.CUIL, doc_nro=MI_CUIT))
+    r = wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor="30-71234567-1")
+    _, req = wscdc.fake.requests[0]
+    assert req["DocTipoReceptor"] == "86" and req["DocNroReceptor"] == str(MI_CUIT)
+    assert (r.comprobante.doc_tipo_receptor, r.comprobante.doc_nro_receptor) == (
+        86,
+        str(MI_CUIT),
+    )
+
+
+def test_verify_qr_sin_receptor_en_el_qr_envia_el_indicado(wscdc):
+    comprobante = _comprobante(
+        doc_tipo=DocTipo.CONSUMIDOR_FINAL,
+        doc_nro=0,
+        condicion_iva_receptor=CondicionIVAReceptor.CONSUMIDOR_FINAL,
+    )
+    r = wscdc.verify_qr(
+        qr_url(comprobante), doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=MI_CUIT
+    )
+    _, req = wscdc.fake.requests[0]
+    assert req["DocTipoReceptor"] == "80" and req["DocNroReceptor"] == str(MI_CUIT)
+    assert r.comprobante.doc_tipo_receptor == 80
+
+
+def test_verify_qr_cuil_en_el_qr_y_otro_numero_no_consulta(wscdc):
+    url = qr_url(_comprobante(doc_tipo=DocTipo.CUIL, doc_nro=MI_CUIT))
+    with pytest.raises(ValueError, match="no está emitido a ese documento"):
+        wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=OTRA_CUIT)
+    assert not wscdc.fake.requests
 
 
 def test_verify_qr_receptor_solo_en_el_qr(wscdc):

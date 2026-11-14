@@ -116,6 +116,36 @@ def test_carpeta_que_es_symlink(tmp_path):
 
 
 @solo_posix
+def test_ruta_symlink_a_carpeta_propia_privada(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir(mode=0o700)
+    enlace = tmp_path / "enlace"
+    enlace.symlink_to(real)
+    cache = FileTicketCache(enlace)
+    ticket = AccessTicket.from_xml(SPEC_RESPONSE)
+    cache.set("k", ticket)
+    with cache.lock("k"):
+        pass
+    assert cache.get("k") == ticket
+    assert {p.name for p in real.iterdir()} == {"k.json", "k.lock"}
+
+
+@solo_posix
+def test_ruta_symlink_a_carpeta_no_privada(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    real.chmod(0o755)
+    enlace = tmp_path / "enlace"
+    enlace.symlink_to(real)
+    cache = FileTicketCache(enlace)
+    with pytest.raises(ArcaError, match="chmod 700"):
+        cache.set("k", AccessTicket.from_xml(SPEC_RESPONSE))
+    with pytest.raises(ArcaError, match="chmod 700"):
+        cache.get("k")
+    assert not list(real.iterdir())
+
+
+@solo_posix
 def test_lock_no_sigue_symlink(tmp_path):
     victima = tmp_path / "victima"
     carpeta = tmp_path / "tickets"

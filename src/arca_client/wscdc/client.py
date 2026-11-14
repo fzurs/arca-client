@@ -196,33 +196,44 @@ class WSCDC:
 
         Documento del receptor:
 
-        - Si lo indicás (``doc_tipo_receptor`` y ``doc_nro_receptor``), se consulta con ese.
-          Así se exige que el comprobante esté emitido a tu nombre: si el QR trae otro
-          receptor, se lanza ``ValueError`` sin consultar a ARCA.
+        - Si lo indicás (``doc_tipo_receptor`` y ``doc_nro_receptor``), se exige que el
+          comprobante esté emitido a tu nombre: si el QR trae otro receptor, se lanza
+          ``ValueError`` sin consultar a ARCA. CUIT (80), CUIL (86) y CDI (87) cuentan
+          como el mismo documento si el número coincide.
+        - Si el QR trae el mismo documento que indicaste, a ARCA se envían el tipo y el
+          número del QR, que son los registrados en el comprobante (una factura emitida a
+          un CUIL se consulta con 86 aunque pases ``DocTipo.CUIT``). Si el QR no trae
+          receptor, se envía lo que indicaste.
         - Si no lo indicás, se usa el del QR; si el QR tampoco lo trae (consumidor
           final), se consulta sin receptor.
+
+        ``Constatacion.comprobante`` tiene lo que efectivamente se envió.
 
         Un QR mal formado o incompleto lanza ``ValueError`` (ver :func:`parse_qr_url`).
         """
         datos = parse_qr_url(url)
         try:
             modo = _MODO_QR[str(datos.get("tipoCodAut", "E"))]
-            qr_tiene_receptor = "tipoDocRec" in datos and "nroDocRec" in datos
-            if doc_tipo_receptor is None and doc_nro_receptor is None:
-                if qr_tiene_receptor:
-                    doc_tipo_receptor = datos["tipoDocRec"]
-                    doc_nro_receptor = datos["nroDocRec"]
-            elif (
-                qr_tiene_receptor
-                and doc_tipo_receptor is not None
-                and doc_nro_receptor is not None
-                and _clave_receptor(doc_tipo_receptor, doc_nro_receptor)
-                != _clave_receptor(datos["tipoDocRec"], datos["nroDocRec"])
-            ):
-                raise ValueError(
-                    "El comprobante no está emitido a ese documento: el QR indica otro "
-                    "receptor. No se consultó a ARCA."
-                )
+            receptor_qr = (
+                (datos["tipoDocRec"], datos["nroDocRec"])
+                if "tipoDocRec" in datos and "nroDocRec" in datos
+                else None
+            )
+            if receptor_qr is not None:
+                if doc_tipo_receptor is None and doc_nro_receptor is None:
+                    doc_tipo_receptor, doc_nro_receptor = receptor_qr
+                elif doc_tipo_receptor is not None and doc_nro_receptor is not None:
+                    if _clave_receptor(doc_tipo_receptor, doc_nro_receptor) != _clave_receptor(
+                        *receptor_qr
+                    ):
+                        raise ValueError(
+                            "El comprobante no está emitido a ese documento: el QR indica "
+                            "otro receptor. No se consultó a ARCA."
+                        )
+                    # Es la misma persona: se envía el documento registrado en el
+                    # comprobante (con CUIT en vez de CUIL, ARCA podría no encontrarlo).
+                    doc_tipo_receptor, doc_nro_receptor = receptor_qr
+                # Si falta uno de los dos, verify_voucher lanza ValueError.
             return self.verify_voucher(
                 cuit_emisor=datos["cuit"],
                 punto_venta=int(datos["ptoVta"]),

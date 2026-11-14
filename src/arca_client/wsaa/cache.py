@@ -75,10 +75,11 @@ class FileTicketCache:
     """Guarda cada TA como JSON en `directory` (por defecto :func:`default_cache_dir`).
 
     El token y el sign son credenciales, así que la carpeta tiene que ser privada: si
-    no existe se crea con permisos 0700; si ya existe, tiene que ser un directorio
-    real (no un symlink), del usuario actual y sin permisos para grupo ni otros. Si no,
-    se lanza :class:`ArcaError` (no se corrigen los permisos solos). En Windows no se
-    verifican dueño ni permisos.
+    no existe se crea con permisos 0700; si ya existe, tiene que ser un directorio del
+    usuario actual y sin permisos para grupo ni otros. Si la ruta es un symlink, se
+    verifica la carpeta a la que apunta (la ruta se resuelve al crear la caché). Si no
+    cumple, se lanza :class:`ArcaError` (no se corrigen los permisos solos). En Windows
+    no se verifican dueño ni permisos.
     """
 
     def __init__(self, directory: str | os.PathLike | None = None) -> None:
@@ -148,8 +149,9 @@ class FileTicketCache:
         carpeta = f"La carpeta de la caché de tickets {self.directory}"
         if not stat.S_ISDIR(st.st_mode):
             raise ArcaError(
-                f"{carpeta} no es un directorio (¿es un symlink?). Usá una carpeta propia, "
-                "por ejemplo con ARCA_TA_CACHE."
+                f"{carpeta} no es un directorio (o se reemplazó por un archivo o un symlink "
+                "después de crear la caché). Usá una carpeta propia, por ejemplo con "
+                "ARCA_TA_CACHE."
             )
         if not hasattr(os, "getuid"):  # Windows
             return True
