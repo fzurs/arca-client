@@ -17,6 +17,7 @@ from arca_client import (
     CondicionIVAReceptor,
     DocTipo,
     MemoryTicketCache,
+    RespuestaNoReconocida,
     WSCDCError,
     parse_qr_url,
     qr_url,
@@ -161,8 +162,12 @@ def test_errores_sin_resultado_lanzan(wscdc):
 
 def test_respuesta_sin_resultado_no_se_informa_como_invalida(wscdc):
     wscdc.fake.resultado = None
-    with pytest.raises(ArcaError, match="sin resultado"):
+    with pytest.raises(ArcaError, match="sin resultado") as e:
         _verificar(wscdc)
+    # La respuesta (con CUIT y CAE) no va en el mensaje, pero queda para depurar.
+    assert isinstance(e.value, RespuestaNoReconocida)
+    assert e.value.respuesta is not None
+    assert str(CUIT_PROVEEDOR) not in str(e.value) and CAE not in str(e.value)
 
 
 @pytest.mark.parametrize(
@@ -388,8 +393,27 @@ def test_verify_qr_receptor_distinto_al_indicado(wscdc):
     with pytest.raises(ValueError, match="no está emitido a ese documento"):
         wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=MI_CUIT)
     with pytest.raises(ValueError, match="no está emitido a ese documento"):
-        wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIL, doc_nro_receptor=OTRA_CUIT)
+        wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.DNI, doc_nro_receptor=OTRA_CUIT)
     assert not wscdc.fake.requests
+
+
+def test_verify_qr_cuit_cuil_y_cdi_son_la_misma_clave(wscdc):
+    url = qr_url(_comprobante(doc_tipo=DocTipo.CUIL, doc_nro=MI_CUIT))
+    wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=MI_CUIT)
+    wscdc.verify_qr(url, doc_tipo_receptor=87, doc_nro_receptor=MI_CUIT)
+    # A ARCA va lo que indicó quien llama, no lo del QR.
+    (_, cuit), (_, cdi) = wscdc.fake.requests
+    assert cuit["DocTipoReceptor"] == "80" and cuit["DocNroReceptor"] == str(MI_CUIT)
+    assert cdi["DocTipoReceptor"] == "87"
+    with pytest.raises(ValueError, match="no está emitido a ese documento"):
+        wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=OTRA_CUIT)
+    assert len(wscdc.fake.requests) == 2
+
+
+def test_parse_qr_url_exponente_lanza_value_error_simple():
+    with pytest.raises(ValueError, match="exponente") as e:
+        parse_qr_url(_qr_con("ptoVta", "1e999999999"))
+    assert type(e.value) is ValueError
 
 
 def test_verify_qr_receptor_igual_al_indicado(wscdc):

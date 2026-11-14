@@ -56,8 +56,8 @@ def parse_qr_url(url: str) -> dict:
     try:
         raw = base64.b64decode(data, altchars=b"-_" if "-" in data or "_" in data else None)
         payload = json.loads(raw, parse_float=_parse_float)
-    except _NumeroInvalido:
-        raise
+    except _NumeroInvalido as e:
+        raise ValueError(str(e)) from None
     except (ValueError, binascii.Error) as e:
         raise ValueError(f"El QR no contiene un JSON válido en Base64: {e}") from e
     if not isinstance(payload, dict):

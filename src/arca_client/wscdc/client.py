@@ -13,7 +13,7 @@ import zeep
 
 from ..certificates import cuit_from_certificate, is_valid_cuit
 from ..environments import wscdc_wsdl
-from ..exceptions import ArcaError, WSCDCError
+from ..exceptions import ArcaError, RespuestaNoReconocida, WSCDCError
 from ..transport import make_transport
 from ..wsaa import WSAA
 from ..wsfe.client import _lista, _mensajes
@@ -166,7 +166,11 @@ class WSCDC:
             if errores:
                 raise WSCDCError(errores)
             # Nunca informar como inválido algo que no pudimos interpretar.
-            raise ArcaError(f"Respuesta de ComprobanteConstatar sin resultado: {result!r}")
+            raise RespuestaNoReconocida(
+                "Respuesta de ComprobanteConstatar sin resultado (la respuesta completa está "
+                "en el atributo `respuesta`)",
+                respuesta=result,
+            )
         return Constatacion(
             aprobada=resultado == "A" and not errores,
             observaciones=_mensajes(result, "Observaciones", "Obs"),
@@ -269,12 +273,18 @@ class WSCDC:
         return self._soap.service
 
 
-def _clave_receptor(tipo, numero) -> tuple[int, str]:
+# CUIT (80), CUIL (86) y CDI (87) son la misma clave de 11 dígitos: un QR con CUIL y
+# quien llama con CUIT del mismo número son la misma persona.
+_CLAVES_FISCALES = frozenset({80, 86, 87})
+
+
+def _clave_receptor(tipo, numero) -> tuple[int | str, str]:
     """Documento del receptor normalizado para comparar: sin guiones ni ceros a la izquierda."""
     nro = str(numero).replace("-", "").strip().upper()
     if nro.isdigit():
         nro = nro.lstrip("0") or "0"
-    return int(tipo), nro
+    tipo = int(tipo)
+    return ("clave fiscal" if tipo in _CLAVES_FISCALES else tipo), nro
 
 
 def _parametros(result, item: str, clave: str) -> dict[str, str]:

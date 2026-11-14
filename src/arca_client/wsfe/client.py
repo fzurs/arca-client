@@ -13,7 +13,7 @@ from zeep.exceptions import Fault, TransportError, XMLParseError
 
 from ..certificates import cuit_from_certificate, is_valid_cuit
 from ..environments import wsfe_wsdl
-from ..exceptions import ArcaError, WSFEConnectionError, WSFEError
+from ..exceptions import ArcaError, RespuestaNoReconocida, WSFEConnectionError, WSFEError
 from ..transport import make_transport
 from ..wsaa import WSAA
 from .types import (
@@ -59,10 +59,6 @@ _COMMUNICATION_ERRORS = (
     XMLParseError,
     XMLSyntaxError,
 )
-
-
-class _UnrecognizedResponse(ArcaError):
-    pass
 
 
 class WSFE:
@@ -635,7 +631,7 @@ class WSFE:
                 ultimo = self.last_voucher_number(punto_venta, tipo)
                 if ultimo < numero:  # nadie usó el número: el rechazo es por otra causa (la fecha)
                     raise
-            except (*_COMMUNICATION_ERRORS, _UnrecognizedResponse) as error:
+            except (*_COMMUNICATION_ERRORS, RespuestaNoReconocida) as error:
                 return self._recover(punto_venta, tipo, numero, fecha, datos, error)
 
     def _recover(
@@ -645,7 +641,12 @@ class WSFE:
 
         Ver "Operatoria con errores de comunicación" en el manual de WSFEv1.
         """
-        ref = dict(punto_venta=punto_venta, tipo=tipo, numero=numero)
+        ref = dict(
+            punto_venta=punto_venta,
+            tipo=tipo,
+            numero=numero,
+            respuesta=getattr(error, "respuesta", None),
+        )
         nombre = f"{punto_venta:05d}-{numero:08d}"
         last_error = None
         for intento in range(self.recovery_attempts):
@@ -935,9 +936,10 @@ def _parse_cae_response(result, **datos) -> ComprobanteAutorizado:
         if errores:
             raise WSFEError(errores)
         # Nunca reportar como rechazo algo que no pudimos interpretar: puede estar autorizado.
-        raise _UnrecognizedResponse(
+        raise RespuestaNoReconocida(
             "Respuesta de FECAESolicitar sin detalle reconocible; el comprobante podría "
-            f"haber sido autorizado. Respuesta: {result!r}"
+            "haber sido autorizado (la respuesta completa está en el atributo `respuesta`)",
+            respuesta=result,
         )
     if det.Resultado != "A" or not det.CAE:
         raise WSFEError(errores, observaciones)

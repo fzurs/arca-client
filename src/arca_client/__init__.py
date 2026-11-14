@@ -3,6 +3,7 @@ from .environments import Environment
 from .exceptions import (
     ArcaError,
     PersonaNoEncontrada,
+    RespuestaNoReconocida,
     WSAAError,
     WSCDCError,
     WSFEConnectionError,
@@ -62,6 +63,7 @@ __all__ = [
     "MemoryTicketCache",
     "ModoAutorizacion",
     "PersonaNoEncontrada",
+    "RespuestaNoReconocida",
     "TipoPersona",
     "TipoTributo",
     "Tributo",

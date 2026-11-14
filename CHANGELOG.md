@@ -10,6 +10,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 - `WSCDC.verify_qr`: el receptor del QR reemplazaba en silencio al que indicaba quien llama, así que una factura auténtica emitida a otra persona podía salir `aprobada=True`. Ahora, si se indica `doc_tipo_receptor`/`doc_nro_receptor`, se consulta con esos datos, y si el QR trae otro receptor se lanza `ValueError` sin consultar a ARCA.
 - Los importes (`_monto`) ya no dejan escapar `decimal.InvalidOperation`: un valor fuera de rango, `NaN` o `Infinity` lanza `ValueError`.
 - `FileTicketCache.set` escribe el TA en un temporal con nombre único (`tempfile.mkstemp`, 0600) en vez de `<clave>.tmp`: en un directorio compartido, otro usuario ya no puede plantar un symlink para redirigir las credenciales.
+- `FileTicketCache` verifica que la carpeta sea privada antes de usarla (en `get`, `set` y `lock`): tiene que ser un directorio real, del usuario actual y sin permisos para grupo ni otros. Si no, lanza `ArcaError` (no corrige los permisos). Los `.json` y `.lock` se abren con `O_NOFOLLOW`: un symlink plantado da error en vez de seguirse. Así, en una carpeta compartida, otro usuario ya no puede plantar tickets falsos ni hacer que se creen archivos en otro lado. En Windows no se verifican dueño ni permisos.
 
 ### Agregado
 
@@ -18,6 +19,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 ### Cambiado
 
 - `parse_qr_url` rechaza QR que antes aceptaba: números con exponente o con más dígitos de los que admite la especificación, enteros escritos con decimales (`3.0`) o como texto (`"5"`), y `true`/`false` en lugar de números.
+- **Cambio de comportamiento:** `FileTicketCache` rechaza con `ArcaError` una carpeta que ya existe y no es privada (por ejemplo, `ARCA_TA_CACHE` apuntando a una carpeta con permisos `755`). Se arregla con `chmod 700 <carpeta>`.
+- Las respuestas que no se pueden interpretar ya no se copian en el mensaje del error (pueden tener CUIT, CAE y datos del receptor, y terminar en logs). WSCDC lanza `RespuestaNoReconocida` (nueva, subclase de `ArcaError`) con la respuesta en el atributo `respuesta`. En WSFE, `WSFEConnectionError.respuesta` la tiene cuando el corte fue una respuesta irreconocible.
+- `WSCDC.verify_qr` trata CUIT (80), CUIL (86) y CDI (87) como el mismo documento al comparar el receptor del QR con el indicado: un QR con CUIL y quien llama con CUIT del mismo número ya no dan `ValueError`. A ARCA se sigue enviando lo que indicó quien llama.
 
 ## [0.5.0] - 2026-11-05
 

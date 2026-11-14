@@ -20,6 +20,18 @@ class WSAAError(ArcaError):
         return self.code.startswith("wsaa.") or self.code == "wsn.unavailable"
 
 
+class RespuestaNoReconocida(ArcaError):
+    """ARCA respondió algo que no se pudo interpretar.
+
+    El mensaje no incluye la respuesta (puede tener CUIT, CAE y datos del receptor, y
+    terminar en logs); para depurar, está completa en el atributo ``respuesta``.
+    """
+
+    def __init__(self, message: str, respuesta=None):
+        self.respuesta = respuesta
+        super().__init__(message)
+
+
 class WSFEError(ArcaError):
     """WSFE rechazó el pedido.
 
@@ -78,11 +90,24 @@ class WSFEConnectionError(ArcaError):
     - ``safe_to_retry=False``: no se pudo verificar. **No reintentar** con
       ``create_invoice_c`` (emitiría otro número): consultá
       ``WSFE.get_voucher(punto_venta, tipo, numero)`` cuando vuelva la conexión.
+
+    Si el corte fue una respuesta que no se pudo interpretar, ``respuesta`` la tiene
+    completa (no va en el mensaje, para que no termine en logs); si no, es ``None``.
     """
 
-    def __init__(self, message: str, *, punto_venta: int, tipo, numero: int, safe_to_retry: bool):
+    def __init__(
+        self,
+        message: str,
+        *,
+        punto_venta: int,
+        tipo,
+        numero: int,
+        safe_to_retry: bool,
+        respuesta=None,
+    ):
         self.punto_venta = punto_venta
         self.tipo = tipo
         self.numero = numero
         self.safe_to_retry = safe_to_retry
+        self.respuesta = respuesta
         super().__init__(message)
