@@ -256,9 +256,12 @@ def _decimal(value, nombre: str) -> Decimal:
     if isinstance(value, float):
         raise TypeError(f"{nombre}: usá Decimal, int o str, no float")
     try:
-        return Decimal(value)
+        amount = Decimal(value)
     except (InvalidOperation, TypeError) as e:
         raise ValueError(f"{nombre} es inválido: {value!r}") from e
+    if not amount.is_finite():
+        raise ValueError(f"{nombre} es inválido: {value!r}")
+    return amount
 
 
 def _monto(value, nombre: str) -> Decimal:
@@ -266,6 +269,11 @@ def _monto(value, nombre: str) -> Decimal:
     amount = _decimal(value, nombre)
     if amount < 0:
         raise ValueError(f"{nombre} no puede ser negativo")
-    if amount != amount.quantize(_CENTS, rounding=ROUND_HALF_EVEN):
+    try:
+        # Con un exponente enorme (1e999999999) quantize lanza InvalidOperation.
+        cents = amount.quantize(_CENTS, rounding=ROUND_HALF_EVEN)
+    except InvalidOperation as e:
+        raise ValueError(f"{nombre} está fuera de rango") from e
+    if amount != cents:
         raise ValueError(f"{nombre} admite como máximo 2 decimales")
-    return amount.quantize(_CENTS)
+    return cents

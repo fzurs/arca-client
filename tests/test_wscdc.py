@@ -17,6 +17,7 @@ from arca_client import (
     CondicionIVAReceptor,
     DocTipo,
     MemoryTicketCache,
+    RespuestaNoReconocida,
     WSCDCError,
     parse_qr_url,
     qr_url,
@@ -161,8 +162,12 @@ def test_errores_sin_resultado_lanzan(wscdc):
 
 def test_respuesta_sin_resultado_no_se_informa_como_invalida(wscdc):
     wscdc.fake.resultado = None
-    with pytest.raises(ArcaError, match="sin resultado"):
+    with pytest.raises(ArcaError, match="sin resultado") as e:
         _verificar(wscdc)
+    # La respuesta (con CUIT y CAE) no va en el mensaje, pero queda para depurar.
+    assert isinstance(e.value, RespuestaNoReconocida)
+    assert e.value.respuesta is not None
+    assert str(CUIT_PROVEEDOR) not in str(e.value) and CAE not in str(e.value)
 
 
 @pytest.mark.parametrize(
@@ -297,3 +302,174 @@ def test_parametros_y_estado(wscdc):
     wscdc.fake.errores = [(600, "No autorizado")]
     with pytest.raises(WSCDCError):
         wscdc.tipos_comprobante()
+
+
+# --- QR maliciosos: tienen que fallar rápido, sin consultar a ARCA -------------------
+
+
+def _qr_crudo(json_texto: str) -> str:
+    return f"https://www.arca.gob.ar/fe/qr/?p={base64.b64encode(json_texto.encode()).decode()}"
+
+
+def _qr_con(clave: str, valor_json: str) -> str:
+    datos = json.dumps({k: v for k, v in QR_CAEA.items() if k != clave})
+    return _qr_crudo(datos[:-1] + f', "{clave}": {valor_json}}}')
+
+
+@pytest.mark.parametrize(
+    ("clave", "valor"),
+    [
+        ("ptoVta", "1e999999999"),
+        ("nroCmp", "1e999999999"),
+        ("tipoCmp", "1e999999999"),
+        ("importe", "1e999999999"),
+        ("importe", "1E2"),
+        ("importe", "-1e-999999999"),
+        ("importe", "99.999"),
+        ("importe", "12345678901234.5"),
+        ("importe", "123456789012345"),
+        ("importe", '"99.90"'),
+        ("importe", "true"),
+        ("importe", "NaN"),
+        ("importe", "Infinity"),
+        ("ptoVta", "3.0"),
+        ("tipoCmp", "3.5"),
+        ("nroCmp", "true"),
+        ("codAut", "false"),
+        ("ptoVta", '"5"'),
+        ("ptoVta", "-5"),
+        ("ptoVta", "123456"),
+        ("nroCmp", "123456789"),
+        ("tipoCmp", "1234"),
+        ("codAut", "123456789012345"),
+        ("cuit", "123456789012"),
+        ("tipoDocRec", "800"),
+        ("nroDocRec", "1" * 21),
+        ("nroDocRec", "1" * 5000),
+        ("ver", "1e999999999"),
+        ("fecha", "20261019"),
+    ],
+)
+def test_qr_con_datos_invalidos(wscdc, clave, valor):
+    url = _qr_con(clave, valor)
+    with pytest.raises(ValueError):
+        parse_qr_url(url)
+    with pytest.raises(ValueError):
+        wscdc.verify_qr(url)
+    assert not wscdc.fake.requests
+
+
+def test_qr_importes_validos():
+    assert parse_qr_url(_qr_con("importe", "1500"))["importe"] == 1500
+    assert parse_qr_url(_qr_con("importe", "0.05"))["importe"] == Decimal("0.05")
+    assert parse_qr_url(_qr_con("importe", "1234567890123.99"))["importe"] == Decimal(
+        "1234567890123.99"
+    )
+
+
+@pytest.mark.parametrize("valor", ["1e999999999", "Infinity", "NaN", "1e30"])
+def test_verify_voucher_importe_fuera_de_rango(wscdc, valor):
+    with pytest.raises(ValueError):
+        wscdc.verify_voucher(
+            cuit_emisor=CUIT_PROVEEDOR,
+            punto_venta=3,
+            tipo=CbteTipo.FACTURA_B,
+            numero=7,
+            fecha=date(2026, 10, 19),
+            importe_total=valor,
+            codigo_autorizacion=CAE,
+        )
+    assert not wscdc.fake.requests
+
+
+# --- Precedencia del receptor en verify_qr --------------------------------------------
+
+MI_CUIT = 30712345671
+OTRA_CUIT = 20123456786
+
+
+def test_verify_qr_receptor_distinto_al_indicado(wscdc):
+    url = qr_url(_comprobante(doc_tipo=DocTipo.CUIT, doc_nro=OTRA_CUIT))
+    with pytest.raises(ValueError, match="no está emitido a ese documento"):
+        wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=MI_CUIT)
+    with pytest.raises(ValueError, match="no está emitido a ese documento"):
+        wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.DNI, doc_nro_receptor=OTRA_CUIT)
+    assert not wscdc.fake.requests
+
+
+def test_verify_qr_cuit_cuil_y_cdi_son_la_misma_clave(wscdc):
+    url = qr_url(_comprobante(doc_tipo=DocTipo.CUIL, doc_nro=MI_CUIT))
+    wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=MI_CUIT)
+    wscdc.verify_qr(url, doc_tipo_receptor=87, doc_nro_receptor=MI_CUIT)
+    # Mismo número: a ARCA va el documento del QR (el registrado en el comprobante).
+    (_, cuit), (_, cdi) = wscdc.fake.requests
+    assert cuit["DocTipoReceptor"] == "86" and cuit["DocNroReceptor"] == str(MI_CUIT)
+    assert cdi["DocTipoReceptor"] == "86"
+    with pytest.raises(ValueError, match="no está emitido a ese documento"):
+        wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=OTRA_CUIT)
+    assert len(wscdc.fake.requests) == 2
+
+
+def test_parse_qr_url_exponente_lanza_value_error_simple():
+    with pytest.raises(ValueError, match="exponente") as e:
+        parse_qr_url(_qr_con("ptoVta", "1e999999999"))
+    assert type(e.value) is ValueError
+
+
+def test_verify_qr_receptor_igual_al_indicado(wscdc):
+    url = qr_url(_comprobante(doc_tipo=DocTipo.CUIT, doc_nro=MI_CUIT))
+    r = wscdc.verify_qr(url, doc_tipo_receptor=80, doc_nro_receptor="30-71234567-1")
+    assert r.aprobada
+    _, req = wscdc.fake.requests[0]
+    assert req["DocTipoReceptor"] == "80" and req["DocNroReceptor"] == str(MI_CUIT)
+    assert (r.comprobante.doc_tipo_receptor, r.comprobante.doc_nro_receptor) == (
+        80,
+        str(MI_CUIT),
+    )
+
+
+def test_verify_qr_cuil_en_el_qr_y_cuit_indicado_envia_el_del_qr(wscdc):
+    url = qr_url(_comprobante(doc_tipo=DocTipo.CUIL, doc_nro=MI_CUIT))
+    r = wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor="30-71234567-1")
+    _, req = wscdc.fake.requests[0]
+    assert req["DocTipoReceptor"] == "86" and req["DocNroReceptor"] == str(MI_CUIT)
+    assert (r.comprobante.doc_tipo_receptor, r.comprobante.doc_nro_receptor) == (
+        86,
+        str(MI_CUIT),
+    )
+
+
+def test_verify_qr_sin_receptor_en_el_qr_envia_el_indicado(wscdc):
+    comprobante = _comprobante(
+        doc_tipo=DocTipo.CONSUMIDOR_FINAL,
+        doc_nro=0,
+        condicion_iva_receptor=CondicionIVAReceptor.CONSUMIDOR_FINAL,
+    )
+    r = wscdc.verify_qr(
+        qr_url(comprobante), doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=MI_CUIT
+    )
+    _, req = wscdc.fake.requests[0]
+    assert req["DocTipoReceptor"] == "80" and req["DocNroReceptor"] == str(MI_CUIT)
+    assert r.comprobante.doc_tipo_receptor == 80
+
+
+def test_verify_qr_cuil_en_el_qr_y_otro_numero_no_consulta(wscdc):
+    url = qr_url(_comprobante(doc_tipo=DocTipo.CUIL, doc_nro=MI_CUIT))
+    with pytest.raises(ValueError, match="no está emitido a ese documento"):
+        wscdc.verify_qr(url, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=OTRA_CUIT)
+    assert not wscdc.fake.requests
+
+
+def test_verify_qr_receptor_solo_en_el_qr(wscdc):
+    wscdc.verify_qr(qr_url(_comprobante(doc_tipo=DocTipo.CUIT, doc_nro=OTRA_CUIT)))
+    _, req = wscdc.fake.requests[0]
+    assert req["DocTipoReceptor"] == "80" and req["DocNroReceptor"] == str(OTRA_CUIT)
+
+
+def test_constatacion_informa_lo_consultado(wscdc):
+    r = wscdc.verify_qr(qr_url(_comprobante()))
+    c = r.comprobante
+    assert (c.cuit_emisor, c.punto_venta, c.tipo, c.numero) == (CUIT_PROVEEDOR, 3, 6, 7)
+    assert c.fecha == date(2026, 10, 19) and c.importe_total == Decimal("1500.50")
+    assert c.codigo_autorizacion == CAE and c.modo.value == "CAE"
+    assert (c.doc_tipo_receptor, c.doc_nro_receptor) == (80, "20123456780")

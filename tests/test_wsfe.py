@@ -414,6 +414,16 @@ def test_respuesta_irreconocible_se_verifica(wsfe):
     assert len(_consultas(wsfe)) == 1
 
 
+def test_respuesta_irreconocible_no_va_en_el_mensaje(wsfe):
+    respuesta = NS(FeDetResp=None, Errors=None, Events=None, Dato="30712345671")
+    wsfe.fake.FECAESolicitar = lambda **kwargs: respuesta
+    with pytest.raises(WSFEConnectionError) as exc:
+        wsfe.create_invoice_c(1, 10)
+    assert exc.value.safe_to_retry is True
+    assert exc.value.respuesta is respuesta
+    assert "30712345671" not in str(exc.value)
+
+
 def test_errores_antes_de_enviar_no_disparan_recuperacion(wsfe, monkeypatch):
     def sin_ticket(service):
         raise ArcaError("WSAA caído")

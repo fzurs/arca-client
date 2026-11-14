@@ -1,3 +1,3 @@
-from .client import WSCDC, Constatacion, ModoAutorizacion
+from .client import WSCDC, ComprobanteConsultado, Constatacion, ModoAutorizacion
 
-__all__ = ["WSCDC", "Constatacion", "ModoAutorizacion"]
+__all__ = ["WSCDC", "ComprobanteConsultado", "Constatacion", "ModoAutorizacion"]

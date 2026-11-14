@@ -3,6 +3,7 @@ from .environments import Environment
 from .exceptions import (
     ArcaError,
     PersonaNoEncontrada,
+    RespuestaNoReconocida,
     WSAAError,
     WSCDCError,
     WSFEConnectionError,
@@ -10,7 +11,7 @@ from .exceptions import (
     WSPCIError,
 )
 from .wsaa import WSAA, AccessTicket, FileTicketCache, MemoryTicketCache
-from .wscdc import WSCDC, Constatacion, ModoAutorizacion
+from .wscdc import WSCDC, ComprobanteConsultado, Constatacion, ModoAutorizacion
 from .wsfe import (
     WSFE,
     Alicuota,
@@ -47,6 +48,7 @@ __all__ = [
     "ComprobanteAutorizado",
     "Concepto",
     "Constancia",
+    "ComprobanteConsultado",
     "Constatacion",
     "CondicionIVAReceptor",
     "DocTipo",
@@ -61,6 +63,7 @@ __all__ = [
     "MemoryTicketCache",
     "ModoAutorizacion",
     "PersonaNoEncontrada",
+    "RespuestaNoReconocida",
     "TipoPersona",
     "TipoTributo",
     "Tributo",

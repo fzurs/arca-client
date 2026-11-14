@@ -4,9 +4,12 @@ El WSAA rechaza pedir un TA nuevo mientras haya uno vigente
 (``coe.alreadyAuthenticated``), así que hay que reutilizarlo durante sus 12 h.
 """
 
+import contextlib
 import json
 import os
 import re
+import stat
+import tempfile
 import threading
 import time
 from collections.abc import Iterator
@@ -20,7 +23,11 @@ except ImportError:  # Windows
     fcntl = None
     import msvcrt
 
+from ..exceptions import ArcaError
 from .ticket import AccessTicket
+
+# Abrir sin seguir symlinks donde el sistema lo permite (no existe en Windows).
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
 
 class TicketCache(Protocol):
@@ -65,7 +72,15 @@ def default_cache_dir() -> Path:
 
 
 class FileTicketCache:
-    """Guarda cada TA como JSON en `directory` (por defecto :func:`default_cache_dir`)."""
+    """Guarda cada TA como JSON en `directory` (por defecto :func:`default_cache_dir`).
+
+    El token y el sign son credenciales, así que la carpeta tiene que ser privada: si
+    no existe se crea con permisos 0700; si ya existe, tiene que ser un directorio del
+    usuario actual y sin permisos para grupo ni otros. Si la ruta es un symlink, se
+    verifica la carpeta a la que apunta (la ruta se resuelve al crear la caché). Si no
+    cumple, se lanza :class:`ArcaError` (no se corrigen los permisos solos). En Windows
+    no se verifican dueño ni permisos.
+    """
 
     def __init__(self, directory: str | os.PathLike | None = None) -> None:
         self.directory = (
@@ -83,8 +98,9 @@ class FileTicketCache:
         leen del caché (si no, ARCA les responde ``coe.alreadyAuthenticated``).
         El sistema operativo lo libera aunque el proceso muera.
         """
-        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd = os.open(self._path(key).with_suffix(".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        self._check_directory(create=True)
+        lock_path = self._path(key).with_suffix(".lock")
+        fd = _open_no_follow(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
             _lock_file(fd)
             yield
@@ -92,21 +108,77 @@ class FileTicketCache:
             os.close(fd)  # cerrar el descriptor libera el bloqueo
 
     def get(self, key: str) -> AccessTicket | None:
+        if not self._check_directory(create=False):
+            return None
         path = self._path(key)
         try:
-            return AccessTicket.from_dict(json.loads(path.read_text()))
-        except (FileNotFoundError, ValueError, KeyError):
+            fd = _open_no_follow(path, os.O_RDONLY)
+        except FileNotFoundError:
             return None
+        with os.fdopen(fd) as f:
+            try:
+                return AccessTicket.from_dict(json.loads(f.read()))
+            except (ValueError, KeyError):
+                return None
 
     def set(self, key: str, ticket: AccessTicket) -> None:
-        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._check_directory(create=True)
         path = self._path(key)
-        tmp = path.with_suffix(".tmp")
-        # El token/sign son credenciales: solo legibles por el dueño.
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(ticket.to_dict(), f)
-        os.replace(tmp, path)
+        # Temporal con nombre único (O_EXCL y 0600, el token/sign son credenciales): en
+        # un directorio compartido, nadie puede anticiparse plantando un symlink.
+        fd, tmp = tempfile.mkstemp(dir=self.directory, prefix=f".{path.stem}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(ticket.to_dict(), f)
+            os.replace(tmp, path)
+        except BaseException:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp)
+            raise
+
+    def _check_directory(self, *, create: bool) -> bool:
+        """Verifica que la carpeta sea privada. Devuelve ``False`` si no existe (y no se crea)."""
+        if create:
+            self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            st = os.lstat(self.directory)
+        except FileNotFoundError:
+            if create:
+                raise
+            return False
+        carpeta = f"La carpeta de la caché de tickets {self.directory}"
+        if not stat.S_ISDIR(st.st_mode):
+            raise ArcaError(
+                f"{carpeta} no es un directorio (o se reemplazó por un archivo o un symlink "
+                "después de crear la caché). Usá una carpeta propia, por ejemplo con "
+                "ARCA_TA_CACHE."
+            )
+        if not hasattr(os, "getuid"):  # Windows
+            return True
+        if st.st_uid != os.getuid():
+            raise ArcaError(
+                f"{carpeta} pertenece a otro usuario (uid {st.st_uid}). Usá una carpeta "
+                "propia, por ejemplo con ARCA_TA_CACHE."
+            )
+        if st.st_mode & 0o077:
+            raise ArcaError(
+                f"{carpeta} tiene permisos {stat.S_IMODE(st.st_mode):o}: otros usuarios "
+                f"podrían leer o plantar tickets. Hacela privada con `chmod 700 {self.directory}`."
+            )
+        return True
+
+
+def _open_no_follow(path: Path, flags: int, mode: int = 0o600) -> int:
+    try:
+        return os.open(path, flags | _O_NOFOLLOW, mode)
+    except FileNotFoundError:
+        raise
+    except OSError as e:
+        if os.path.islink(path):
+            raise ArcaError(
+                f"{path} es un symlink: no se sigue por seguridad. Borralo si no lo creaste vos."
+            ) from e
+        raise
 
 
 def _lock_file(fd: int) -> None:

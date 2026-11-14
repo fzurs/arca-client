@@ -6,13 +6,14 @@ proveedor) exista y esté autorizado con los datos que figuran en él.
 
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
 from enum import Enum
 
 import zeep
 
 from ..certificates import cuit_from_certificate, is_valid_cuit
 from ..environments import wscdc_wsdl
-from ..exceptions import ArcaError, WSCDCError
+from ..exceptions import ArcaError, RespuestaNoReconocida, WSCDCError
 from ..transport import make_transport
 from ..wsaa import WSAA
 from ..wsfe.client import _lista, _mensajes
@@ -35,6 +36,22 @@ _MODO_QR = {"E": ModoAutorizacion.CAE, "A": ModoAutorizacion.CAEA}
 
 
 @dataclass(frozen=True)
+class ComprobanteConsultado:
+    """Datos con los que se consultó a ARCA, para compararlos con el comprobante recibido."""
+
+    cuit_emisor: int
+    punto_venta: int
+    tipo: int
+    numero: int
+    fecha: date
+    importe_total: Decimal
+    codigo_autorizacion: str
+    modo: ModoAutorizacion
+    doc_tipo_receptor: int | None = None
+    doc_nro_receptor: str | None = None
+
+
+@dataclass(frozen=True)
 class Constatacion:
     """Resultado de ``ComprobanteConstatar``.
 
@@ -44,6 +61,9 @@ class Constatacion:
     ARCA tolera una diferencia de alrededor de $1 en el importe (en homologación
     aprobó ±1,01 y rechazó ±1,50) y no devuelve el importe registrado: para un control
     exacto, compará además el importe con tus registros.
+
+    ``comprobante`` tiene los datos que se enviaron a ARCA (con ``verify_qr``, los del
+    QR): compará que coincidan con la factura impresa o con tus registros.
     """
 
     aprobada: bool
@@ -51,6 +71,7 @@ class Constatacion:
     errores: list[Mensaje] = field(default_factory=list)
     eventos: list[Mensaje] = field(default_factory=list)
     fecha_proceso: str | None = None
+    comprobante: ComprobanteConsultado | None = None
 
 
 class WSCDC:
@@ -106,19 +127,37 @@ class WSCDC:
         if (doc_tipo_receptor is None) != (doc_nro_receptor is None):
             raise ValueError("Indicá doc_tipo_receptor y doc_nro_receptor juntos, o ninguno")
 
+        importe = _monto(importe_total, "El importe total")
+        receptor = (
+            (int(doc_tipo_receptor), str(doc_nro_receptor).replace("-", "").strip())
+            if doc_tipo_receptor is not None
+            else (None, None)
+        )
+        consultado = ComprobanteConsultado(
+            cuit_emisor=int(cuit_emisor),
+            punto_venta=int(punto_venta),
+            tipo=int(tipo),
+            numero=int(numero),
+            fecha=fecha,
+            importe_total=importe,
+            codigo_autorizacion=codigo,
+            modo=ModoAutorizacion(modo),
+            doc_tipo_receptor=receptor[0],
+            doc_nro_receptor=receptor[1],
+        )
         request = {
-            "CbteModo": ModoAutorizacion(modo).value,
-            "CuitEmisor": int(cuit_emisor),
-            "PtoVta": int(punto_venta),
-            "CbteTipo": int(tipo),
-            "CbteNro": int(numero),
+            "CbteModo": consultado.modo.value,
+            "CuitEmisor": consultado.cuit_emisor,
+            "PtoVta": consultado.punto_venta,
+            "CbteTipo": consultado.tipo,
+            "CbteNro": consultado.numero,
             "CbteFch": fecha.strftime("%Y%m%d"),
-            "ImpTotal": float(_monto(importe_total, "El importe total")),
+            "ImpTotal": float(importe),
             "CodAutorizacion": codigo,
         }
-        if doc_tipo_receptor is not None:
-            request["DocTipoReceptor"] = str(int(doc_tipo_receptor))
-            request["DocNroReceptor"] = str(doc_nro_receptor).replace("-", "")
+        if consultado.doc_tipo_receptor is not None:
+            request["DocTipoReceptor"] = str(consultado.doc_tipo_receptor)
+            request["DocNroReceptor"] = consultado.doc_nro_receptor
 
         result = self._service().ComprobanteConstatar(Auth=self._auth(), CmpReq=request)
         errores = _mensajes(result, "Errors", "Err")
@@ -127,7 +166,11 @@ class WSCDC:
             if errores:
                 raise WSCDCError(errores)
             # Nunca informar como inválido algo que no pudimos interpretar.
-            raise ArcaError(f"Respuesta de ComprobanteConstatar sin resultado: {result!r}")
+            raise RespuestaNoReconocida(
+                "Respuesta de ComprobanteConstatar sin resultado (la respuesta completa está "
+                "en el atributo `respuesta`)",
+                respuesta=result,
+            )
         return Constatacion(
             aprobada=resultado == "A" and not errores,
             observaciones=_mensajes(result, "Observaciones", "Obs"),
@@ -139,6 +182,7 @@ class WSCDC:
                 if e.Code or e.Msg
             ],
             fecha_proceso=str(result.FchProceso) if result.FchProceso else None,
+            comprobante=consultado,
         )
 
     def verify_qr(
@@ -150,15 +194,46 @@ class WSCDC:
     ) -> Constatacion:
         """Verifica un comprobante a partir del texto de su código QR (RG 4892).
 
-        El documento del receptor sale del QR; si el QR no lo trae (consumidor final),
-        se puede indicar aparte.
+        Documento del receptor:
+
+        - Si lo indicás (``doc_tipo_receptor`` y ``doc_nro_receptor``), se exige que el
+          comprobante esté emitido a tu nombre: si el QR trae otro receptor, se lanza
+          ``ValueError`` sin consultar a ARCA. CUIT (80), CUIL (86) y CDI (87) cuentan
+          como el mismo documento si el número coincide.
+        - Si el QR trae el mismo documento que indicaste, a ARCA se envían el tipo y el
+          número del QR, que son los registrados en el comprobante (una factura emitida a
+          un CUIL se consulta con 86 aunque pases ``DocTipo.CUIT``). Si el QR no trae
+          receptor, se envía lo que indicaste.
+        - Si no lo indicás, se usa el del QR; si el QR tampoco lo trae (consumidor
+          final), se consulta sin receptor.
+
+        ``Constatacion.comprobante`` tiene lo que efectivamente se envió.
+
+        Un QR mal formado o incompleto lanza ``ValueError`` (ver :func:`parse_qr_url`).
         """
         datos = parse_qr_url(url)
         try:
             modo = _MODO_QR[str(datos.get("tipoCodAut", "E"))]
-            if "tipoDocRec" in datos and "nroDocRec" in datos:
-                doc_tipo_receptor = datos["tipoDocRec"]
-                doc_nro_receptor = datos["nroDocRec"]
+            receptor_qr = (
+                (datos["tipoDocRec"], datos["nroDocRec"])
+                if "tipoDocRec" in datos and "nroDocRec" in datos
+                else None
+            )
+            if receptor_qr is not None:
+                if doc_tipo_receptor is None and doc_nro_receptor is None:
+                    doc_tipo_receptor, doc_nro_receptor = receptor_qr
+                elif doc_tipo_receptor is not None and doc_nro_receptor is not None:
+                    if _clave_receptor(doc_tipo_receptor, doc_nro_receptor) != _clave_receptor(
+                        *receptor_qr
+                    ):
+                        raise ValueError(
+                            "El comprobante no está emitido a ese documento: el QR indica "
+                            "otro receptor. No se consultó a ARCA."
+                        )
+                    # Es la misma persona: se envía el documento registrado en el
+                    # comprobante (con CUIT en vez de CUIL, ARCA podría no encontrarlo).
+                    doc_tipo_receptor, doc_nro_receptor = receptor_qr
+                # Si falta uno de los dos, verify_voucher lanza ValueError.
             return self.verify_voucher(
                 cuit_emisor=datos["cuit"],
                 punto_venta=int(datos["ptoVta"]),
@@ -207,6 +282,20 @@ class WSCDC:
             transport = make_transport(self.env, self.timeout)
             self._soap = zeep.Client(wscdc_wsdl(self.env), transport=transport)
         return self._soap.service
+
+
+# CUIT (80), CUIL (86) y CDI (87) son la misma clave de 11 dígitos: un QR con CUIL y
+# quien llama con CUIT del mismo número son la misma persona.
+_CLAVES_FISCALES = frozenset({80, 86, 87})
+
+
+def _clave_receptor(tipo, numero) -> tuple[int | str, str]:
+    """Documento del receptor normalizado para comparar: sin guiones ni ceros a la izquierda."""
+    nro = str(numero).replace("-", "").strip().upper()
+    if nro.isdigit():
+        nro = nro.lstrip("0") or "0"
+    tipo = int(tipo)
+    return ("clave fiscal" if tipo in _CLAVES_FISCALES else tipo), nro
 
 
 def _parametros(result, item: str, clave: str) -> dict[str, str]:

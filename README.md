@@ -87,6 +87,8 @@ La ubicación es fija, sin importar desde qué directorio se ejecute:
 
 Cada archivo se llama `<ambiente>-<servicio>-<huella del certificado>.json`. **No borres esta carpeta mientras haya tickets vigentes**: si se pierde el TA, ARCA no deja pedir otro hasta que venza (hasta 12 h).
 
+**La carpeta tiene que ser privada**, porque el TA es una credencial. Si no existe, se crea con permisos `0700`. Si ya existe, tiene que ser tuya y sin permisos para grupo ni otros; si la ruta es un symlink, se verifica la carpeta a la que apunta. Si no cumple, se lanza `ArcaError` y no se corrigen los permisos solos: no apuntes `ARCA_TA_CACHE` a una carpeta compartida como `/tmp`, o hacela privada con `chmod 700 <carpeta>`. Los archivos `.json` y `.lock` se abren sin seguir symlinks. En Windows no se verifican dueño ni permisos.
+
 Se puede usar otro backend con cualquier objeto que tenga `get(key)` y `set(key, ticket)`, por ejemplo `MemoryTicketCache()` o uno propio sobre Redis:
 
 ```python
@@ -334,9 +336,16 @@ resultado = wscdc.verify_voucher(
 
 - `resultado.aprobada` es `True` solo si ARCA devuelve `Resultado = "A"` sin errores. Si no coincide algún dato, es `False` y `observaciones`/`errores` dicen por qué (ej. `100`: el CAE no existe, `105`: el número no corresponde al CAE, `107`: la fecha no corresponde, `110`: el importe no corresponde).
 - **ARCA tolera alrededor de $1 de diferencia en el importe**: en homologación aprobó diferencias de ±1,01 y rechazó ±1,50. Tampoco devuelve el importe registrado. Si necesitás un control exacto, compará además el importe con lo que tenés registrado.
-- Si ARCA no llega a procesar la consulta (por ejemplo, falta de autorización), se lanza `WSCDCError`. Eso no dice nada sobre el comprobante: no se pudo verificar.
+- Si ARCA no llega a procesar la consulta (por ejemplo, falta de autorización), se lanza `WSCDCError`. Eso no dice nada sobre el comprobante: no se pudo verificar. Si responde algo que no se puede interpretar, se lanza `RespuestaNoReconocida` (subclase de `ArcaError`): la respuesta completa queda en su atributo `respuesta` y no va en el mensaje, porque puede tener CUIT y CAE.
 - `modo=ModoAutorizacion.CAEA` (o `CAI`) para comprobantes autorizados por otra vía. `verify_qr` lo toma del QR.
-- `parse_qr_url(texto)` devuelve el JSON del QR (con el importe como `Decimal`), por si querés guardar los datos.
+- **Receptor en `verify_qr`**: si pasás `doc_tipo_receptor` y `doc_nro_receptor`, se consulta con esos datos. Es la forma de exigir que la factura esté a tu nombre: si el QR trae otro receptor, se lanza `ValueError` y no se consulta a ARCA (si no, un proveedor podría presentar una factura auténtica emitida a otra persona). Si no los pasás, se usa el receptor del QR, y si el QR tampoco lo trae (consumidor final), se consulta sin receptor. CUIT (80), CUIL (86) y CDI (87) cuentan como el mismo documento si el número coincide. Si el QR trae el mismo documento que indicaste, a ARCA se envían el tipo y el número del QR, que son los registrados en el comprobante (por ejemplo, CUIL si la factura se emitió a tu CUIL aunque pases `DocTipo.CUIT`); `resultado.comprobante` muestra lo que se envió. Si el QR no trae receptor, se envía lo que indicaste.
+
+  ```python
+  resultado = wscdc.verify_qr(texto_qr, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=30712345671)
+  ```
+
+- `resultado.comprobante` tiene los datos con los que se consultó (CUIT del emisor, punto de venta, tipo, número, fecha, importe, código de autorización y receptor). Con `verify_qr` salen del QR: comparalos con la factura impresa o con tus registros.
+- `parse_qr_url(texto)` devuelve el JSON del QR (con el importe como `Decimal`), por si querés guardar los datos. Como el QR lo arma quien emite, se valida: los datos numéricos tienen que ser enteros con una cantidad acotada de dígitos y el importe, un número de hasta 13 enteros y 2 decimales sin exponente. Si no, lanza `ValueError`.
 - Consultas: `tipos_comprobante()`, `tipos_documento()`, `modalidades()` y `estado()` (estado de los servidores; no necesita ticket).
 
 Hay que autorizar el certificado al servicio `wscdc` (en homologación, desde WSASS; en producción, desde el *Administrador de Relaciones de Clave Fiscal*).
