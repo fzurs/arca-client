@@ -1,6 +1,6 @@
 [project]
 name = "arca-client"
-version = "0.6.0"
+version = "0.6.1"
 description = "Cliente Python para los web services de ARCA (ex AFIP)"
 readme = "README.md"
 license = "MIT"
@@ -47,3 +47,6 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/", "tests/", "examples/", "README.md", "CHANGELOG.md", "LICENSE"]

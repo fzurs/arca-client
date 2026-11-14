@@ -1,0 +1,53 @@
+# Publica en PyPI al pushear un tag vX.Y.Z (Trusted Publishing: sin tokens guardados).
+name: Publicar en PyPI
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Verificar que el tag coincide con la versión
+        run: |
+          version=$(uv run --no-project python -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "El tag $GITHUB_REF_NAME no coincide con la versión $version de pyproject.toml"
+            exit 1
+          fi
+
+      - name: Lint y tests
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest
+
+      - name: Construir
+        run: uv build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/arca-client/
+    permissions:
+      id-token: write  # necesario para Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

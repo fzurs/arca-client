@@ -1,6 +1,6 @@
 """Representación impresa (PDF) de comprobantes A, B y C con su código QR.
 
-Requiere el extra ``pdf``: ``pip install arca-client[pdf]``.
+Requiere el extra ``pdf``: ``pip install "arca-client[pdf]"``.
 """
 
 from dataclasses import dataclass
@@ -149,7 +149,9 @@ def render_invoice_pdf(
         import segno
         from fpdf import FPDF
     except ImportError as e:  # pragma: no cover
-        raise ImportError("Para generar PDFs instalá el extra: pip install arca-client[pdf]") from e
+        raise ImportError(
+            'Para generar PDFs instalá el extra: pip install "arca-client[pdf]"'
+        ) from e
 
     receptor = receptor or Receptor()
     qr_png = BytesIO()

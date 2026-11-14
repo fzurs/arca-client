@@ -8,7 +8,7 @@ Estado actual: **autenticación (WSAA)**, **factura electrónica (WSFEv1)**, **c
 
 ```bash
 uv sync                 # desarrollo
-pip install arca-client[pdf]   # como dependencia, con generación de PDF
+pip install "arca-client[pdf]" # como dependencia, con generación de PDF
 ```
 
 ## Requisitos previos: certificado
