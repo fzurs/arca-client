@@ -55,3 +55,15 @@ def test_lock_file_is_private(tmp_path):
     (path,) = (tmp_path / "tickets").iterdir()
     assert path.name == "homologacion-wsfe-abc.lock"
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_set_no_sigue_symlink_plantado(tmp_path):
+    # Antes se escribía siempre en "<key>.tmp": un symlink ahí redirigía las credenciales.
+    cache = FileTicketCache(tmp_path)
+    victima = tmp_path / "victima"
+    victima.write_text("intacto")
+    (tmp_path / "k.tmp").symlink_to(victima)
+    cache.set("k", AccessTicket.from_xml(SPEC_RESPONSE))
+    assert victima.read_text() == "intacto"
+    assert cache.get("k") is not None
+    assert {p.name for p in tmp_path.iterdir()} == {"k.json", "k.tmp", "victima"}

@@ -10,7 +10,7 @@ from .exceptions import (
     WSPCIError,
 )
 from .wsaa import WSAA, AccessTicket, FileTicketCache, MemoryTicketCache
-from .wscdc import WSCDC, Constatacion, ModoAutorizacion
+from .wscdc import WSCDC, ComprobanteConsultado, Constatacion, ModoAutorizacion
 from .wsfe import (
     WSFE,
     Alicuota,
@@ -47,6 +47,7 @@ __all__ = [
     "ComprobanteAutorizado",
     "Concepto",
     "Constancia",
+    "ComprobanteConsultado",
     "Constatacion",
     "CondicionIVAReceptor",
     "DocTipo",

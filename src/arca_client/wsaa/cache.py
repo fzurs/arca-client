@@ -4,9 +4,11 @@ El WSAA rechaza pedir un TA nuevo mientras haya uno vigente
 (``coe.alreadyAuthenticated``), así que hay que reutilizarlo durante sus 12 h.
 """
 
+import contextlib
 import json
 import os
 import re
+import tempfile
 import threading
 import time
 from collections.abc import Iterator
@@ -101,12 +103,17 @@ class FileTicketCache:
     def set(self, key: str, ticket: AccessTicket) -> None:
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         path = self._path(key)
-        tmp = path.with_suffix(".tmp")
-        # El token/sign son credenciales: solo legibles por el dueño.
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(ticket.to_dict(), f)
-        os.replace(tmp, path)
+        # Temporal con nombre único (O_EXCL y 0600, el token/sign son credenciales): en
+        # un directorio compartido, nadie puede anticiparse plantando un symlink.
+        fd, tmp = tempfile.mkstemp(dir=self.directory, prefix=f".{path.stem}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(ticket.to_dict(), f)
+            os.replace(tmp, path)
+        except BaseException:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp)
+            raise
 
 
 def _lock_file(fd: int) -> None:

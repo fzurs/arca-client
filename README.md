@@ -336,7 +336,14 @@ resultado = wscdc.verify_voucher(
 - **ARCA tolera alrededor de $1 de diferencia en el importe**: en homologación aprobó diferencias de ±1,01 y rechazó ±1,50. Tampoco devuelve el importe registrado. Si necesitás un control exacto, compará además el importe con lo que tenés registrado.
 - Si ARCA no llega a procesar la consulta (por ejemplo, falta de autorización), se lanza `WSCDCError`. Eso no dice nada sobre el comprobante: no se pudo verificar.
 - `modo=ModoAutorizacion.CAEA` (o `CAI`) para comprobantes autorizados por otra vía. `verify_qr` lo toma del QR.
-- `parse_qr_url(texto)` devuelve el JSON del QR (con el importe como `Decimal`), por si querés guardar los datos.
+- **Receptor en `verify_qr`**: si pasás `doc_tipo_receptor` y `doc_nro_receptor`, se consulta con esos datos. Es la forma de exigir que la factura esté a tu nombre: si el QR trae otro receptor, se lanza `ValueError` y no se consulta a ARCA (si no, un proveedor podría presentar una factura auténtica emitida a otra persona). Si no los pasás, se usa el receptor del QR, y si el QR tampoco lo trae (consumidor final), se consulta sin receptor.
+
+  ```python
+  resultado = wscdc.verify_qr(texto_qr, doc_tipo_receptor=DocTipo.CUIT, doc_nro_receptor=30712345671)
+  ```
+
+- `resultado.comprobante` tiene los datos con los que se consultó (CUIT del emisor, punto de venta, tipo, número, fecha, importe, código de autorización y receptor). Con `verify_qr` salen del QR: comparalos con la factura impresa o con tus registros.
+- `parse_qr_url(texto)` devuelve el JSON del QR (con el importe como `Decimal`), por si querés guardar los datos. Como el QR lo arma quien emite, se valida: los datos numéricos tienen que ser enteros con una cantidad acotada de dígitos y el importe, un número de hasta 13 enteros y 2 decimales sin exponente. Si no, lanza `ValueError`.
 - Consultas: `tipos_comprobante()`, `tipos_documento()`, `modalidades()` y `estado()` (estado de los servidores; no necesita ticket).
 
 Hay que autorizar el certificado al servicio `wscdc` (en homologación, desde WSASS; en producción, desde el *Administrador de Relaciones de Clave Fiscal*).

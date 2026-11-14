@@ -2,6 +2,23 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según [SemVer](https://semver.org/lang/es/) (en `0.x`, la versión minor puede traer cambios de comportamiento: están marcados abajo).
 
+## [Sin publicar]
+
+### Seguridad
+
+- `parse_qr_url` / `WSCDC.verify_qr`: un QR con un número con exponente gigante (por ejemplo `"ptoVta": 1e999999999`) dejaba el proceso colgado al convertirlo a entero, y en el importe lanzaba `decimal.InvalidOperation` en vez de `ValueError`. Ahora se validan los datos del QR antes de convertirlos: los enteros (`ver`, `cuit`, `ptoVta`, `tipoCmp`, `nroCmp`, `tipoDocRec`, `nroDocRec`, `codAut`) tienen que ser enteros de JSON con una cantidad acotada de dígitos, y el importe, un número de hasta 13 enteros y 2 decimales, sin exponente. Cualquier otro formato lanza `ValueError` sin consultar a ARCA.
+- `WSCDC.verify_qr`: el receptor del QR reemplazaba en silencio al que indicaba quien llama, así que una factura auténtica emitida a otra persona podía salir `aprobada=True`. Ahora, si se indica `doc_tipo_receptor`/`doc_nro_receptor`, se consulta con esos datos, y si el QR trae otro receptor se lanza `ValueError` sin consultar a ARCA.
+- Los importes (`_monto`) ya no dejan escapar `decimal.InvalidOperation`: un valor fuera de rango, `NaN` o `Infinity` lanza `ValueError`.
+- `FileTicketCache.set` escribe el TA en un temporal con nombre único (`tempfile.mkstemp`, 0600) en vez de `<clave>.tmp`: en un directorio compartido, otro usuario ya no puede plantar un symlink para redirigir las credenciales.
+
+### Agregado
+
+- `Constatacion.comprobante`: un `ComprobanteConsultado` con los datos que se enviaron a ARCA (con `verify_qr`, los del QR), para compararlos con la factura impresa.
+
+### Cambiado
+
+- `parse_qr_url` rechaza QR que antes aceptaba: números con exponente o con más dígitos de los que admite la especificación, enteros escritos con decimales (`3.0`) o como texto (`"5"`), y `true`/`false` en lugar de números.
+
 ## [0.5.0] - 2026-11-05
 
 ### Agregado
