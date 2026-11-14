@@ -2,6 +2,13 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones según [SemVer](https://semver.org/lang/es/) (en `0.x`, la versión minor puede traer cambios de comportamiento: están marcados abajo).
 
+## [0.6.1] - 2026-11-14
+
+### Corregido
+
+- El mensaje de error cuando falta el extra `pdf` (y el README) indican `pip install "arca-client[pdf]"` con comillas: sin ellas, en zsh el comando falla con `no matches found`.
+- El sdist ya no incluye archivos del repositorio que no hacen falta (`CLAUDE.md`, `uv.lock`): ahora lleva solo `src/`, `tests/`, `examples/`, `README.md`, `CHANGELOG.md` y `LICENSE`.
+
 ## [0.6.0] - 2026-11-14
 
 ### Seguridad
