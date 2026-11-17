@@ -7,9 +7,9 @@ Hay una versión interactiva con más detalle por paso en [`arquitectura.html`](
 
 ```python
 wsaa = WSAA.from_alias("miapp", Environment.HOMOLOGACION)  # lee certs/homologacion/miapp.*
-wsfe = WSFE(wsaa)                                         # la CUIT sale del certificado
+wsfe = WSFE(wsaa)  # la CUIT sale del certificado
 factura = wsfe.create_invoice_c(punto_venta=1, importe_total="1500.00")  # TA + CAE
-factura.numero, factura.cae                               # → QR / PDF
+factura.numero, factura.cae  # → QR / PDF
 ```
 
 Crear los objetos no toca la red. La primera llamada a ARCA ocurre dentro de `create_invoice_c`,
