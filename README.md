@@ -443,6 +443,10 @@ uv run pytest
 uv run ruff check .
 ```
 
+Para entender cómo funciona por dentro (autenticación, emisión, cortes de comunicación), ver
+[`docs/arquitectura.md`](docs/arquitectura.md), con diagramas de cada flujo. Hay una versión
+interactiva en `docs/arquitectura.html` para abrir en el navegador.
+
 ## Licencia
 
 MIT
