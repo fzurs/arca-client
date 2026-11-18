@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Anatomía de arca-client</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: columna de lectura de 1180px; cada flujo es un diagrama de secuencia clickeable con su panel de detalle al costado (abajo en pantallas chicas). */
+:root {
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --fg: #18202d;
+  --muted: #5a6577;
+  --line: #d3d9e3;
+  --accent: #1f55c4;
+  --accent-soft: #e4ecfb;
+  --ok: #1d7a4c;
+  --warn: #a85208;
+  --danger: #b3261e;
+  --danger-soft: #fbe9e7;
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f131a; --surface: #161c26; --fg: #e3e8f0; --muted: #98a3b5; --line: #2a3342;
+    --accent: #7ea4ff; --accent-soft: #1c2a47; --ok: #5cc98f; --warn: #f0a35e;
+    --danger: #f2837a; --danger-soft: #3a1f1d; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f131a; --surface: #161c26; --fg: #e3e8f0; --muted: #98a3b5; --line: #2a3342;
+  --accent: #7ea4ff; --accent-soft: #1c2a47; --ok: #5cc98f; --warn: #f0a35e;
+  --danger: #f2837a; --danger-soft: #3a1f1d; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 64px;
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 800; line-height: 1.05; }
+h2 { font-size: 26px; font-weight: 700; }
+h3 { font-size: 17px; font-weight: 700; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+p code, li code, td code, dd code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.lede { color: var(--muted); font-size: 17px; }
+section { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.sec-head { display: flex; flex-direction: column; gap: 8px; }
+
+/* Encabezado */
+header { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+header .intro { display: flex; flex-direction: column; gap: 14px; }
+pre.snippet {
+  margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 18px 20px; overflow-x: auto; font-family: var(--font-mono); font-size: 13.5px; line-height: 1.7;
+}
+.snippet .c { color: var(--muted); }
+.snippet .k { color: var(--accent); }
+.snippet a { color: inherit; text-decoration: underline dotted var(--accent); text-underline-offset: 3px; }
+
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; }
+nav.toc a {
+  font-size: 13px; color: var(--fg); text-decoration: none; border: 1px solid var(--line);
+  padding: 5px 11px; border-radius: 999px; background: var(--surface);
+}
+nav.toc a:hover, nav.toc a:focus-visible { border-color: var(--accent); color: var(--accent); }
+
+/* Glosario */
+dl.gloss { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1px; margin: 0;
+  background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+dl.gloss div { background: var(--surface); padding: 12px 16px; display: flex; flex-direction: column; gap: 2px; }
+dl.gloss dt { font-family: var(--font-mono); font-weight: 500; font-size: 13px; color: var(--accent); }
+dl.gloss dd { margin: 0; font-size: 14px; color: var(--muted); }
+
+/* Figuras */
+figure { margin: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.scroll svg { display: block; width: 100%; min-width: 720px; height: auto; }
+svg text { font-family: var(--font-body); fill: var(--fg); }
+svg .t-sub { font-family: var(--font-mono); font-size: 10.5px; fill: var(--muted); }
+svg .t-lbl { font-family: var(--font-mono); font-size: 11.5px; }
+svg .t-title { font-size: 13.5px; font-weight: 600; }
+svg .box { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+svg .box-hub { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.6; }
+svg .box-disk { fill: var(--bg); stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
+svg .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+svg .edge { stroke: var(--fg); stroke-width: 1.3; fill: none; }
+svg .edge-accent { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+svg .edge-muted { stroke: var(--muted); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+svg .fill-fg { fill: var(--fg); }
+svg .fill-accent { fill: var(--accent); }
+svg .fill-muted { fill: var(--muted); }
+svg .fill-danger { fill: var(--danger); }
+svg .band { fill: var(--bg); stroke: var(--muted); stroke-width: 1; }
+
+/* Secuencias */
+.seq { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tabs button {
+  font: 500 13.5px var(--font-body); color: var(--fg); background: var(--surface);
+  border: 1px solid var(--line); padding: 7px 14px; border-radius: 8px; cursor: pointer;
+}
+.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.tabs button:focus-visible, .detail button:focus-visible, svg .row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+svg .row { cursor: pointer; outline: none; }
+svg .row .hit { fill: transparent; }
+svg .row:hover .hit { fill: var(--accent-soft); fill-opacity: 0.5; }
+svg .row.sel .hit { fill: var(--accent-soft); fill-opacity: 1; }
+svg .row:focus-visible .hit { stroke: var(--accent); stroke-width: 1.5; }
+svg .lifeline { stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 4; }
+svg .lane-head { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+svg .lane-ext { fill: var(--bg); stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 5 3; }
+svg .m-call { stroke: var(--fg); stroke-width: 1.4; fill: none; }
+svg .m-ret { stroke: var(--muted); stroke-width: 1.3; fill: none; stroke-dasharray: 5 4; }
+svg .m-err { stroke: var(--danger); stroke-width: 1.6; fill: none; }
+svg .m-ok { stroke: var(--ok); stroke-width: 1.6; fill: none; }
+svg .lbl-err { fill: var(--danger); }
+svg .lbl-ok { fill: var(--ok); }
+svg .lbl-ret { fill: var(--muted); }
+svg .num { fill: var(--surface); stroke: var(--fg); stroke-width: 1.2; }
+svg .row.sel .num { fill: var(--accent); stroke: var(--accent); }
+svg .num-t { font: 600 10.5px var(--font-mono); fill: var(--fg); }
+svg .row.sel .num-t { fill: var(--surface); }
+svg .ext-mark { fill: var(--muted); font-size: 10px; font-family: var(--font-mono); }
+
+.detail {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px;
+  display: flex; flex-direction: column; gap: 12px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px);
+  min-width: 0;
+}
+.detail .step { font-family: var(--font-mono); font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
+.detail h3 { font-size: 18px; }
+.detail .body { font-size: 14.5px; display: flex; flex-direction: column; gap: 8px; }
+.detail .body p { max-width: none; }
+.detail .body ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.detail .ref { font-family: var(--font-mono); font-size: 12.5px; color: var(--accent); background: var(--accent-soft); padding: 6px 10px; border-radius: 6px; overflow-wrap: anywhere; }
+.detail .nav { display: flex; gap: 8px; }
+.detail .nav button {
+  flex: 1; font: 500 13px var(--font-body); background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 7px; padding: 7px; cursor: pointer;
+}
+.detail .nav button:disabled { opacity: 0.4; cursor: default; }
+.detail .hint { font-size: 12px; color: var(--muted); }
+.callout { border-left: 3px solid var(--warn); padding: 4px 0 4px 12px; font-size: 14px; }
+.callout.danger { border-color: var(--danger); }
+.callout strong { color: var(--fg); }
+
+/* Tabla de errores */
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 680px; font-size: 14px; }
+th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font: 600 12px var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+td:first-child { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; }
+.pill { display: inline-block; font: 500 11.5px var(--font-mono); padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.ok { color: var(--ok); border: 1px solid var(--ok); }
+.pill.no { color: var(--danger); border: 1px solid var(--danger); }
+.pill.mid { color: var(--warn); border: 1px solid var(--warn); }
+
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px; }
+
+@media (max-width: 1020px) {
+  .seq { grid-template-columns: minmax(0, 1fr); }
+  .detail { position: static; }
+  header { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  svg .row .hit { transition: fill 120ms ease; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+<header>
+  <div class="intro">
+    <span class="eyebrow">arca-client · guía visual del código</span>
+    <h1>Anatomía de arca-client</h1>
+    <p class="lede">Cómo se autentica el paquete contra ARCA, cómo pide un CAE y qué hace cuando algo sale mal. Cada paso de los diagramas se puede clickear y muestra el archivo y la línea que lo implementa.</p>
+    <nav class="toc" aria-label="Secciones">
+      <a href="#mapa">Mapa de módulos</a>
+      <a href="#auth">Autenticación (WSAA)</a>
+      <a href="#factura">Emitir comprobantes</a>
+      <a href="#despues">QR, PDF y verificación</a>
+      <a href="#certificado">Certificado (arca-setup)</a>
+      <a href="#errores">Errores</a>
+    </nav>
+  </div>
+  <figure>
+<pre class="snippet"><span class="c"># Todo el flujo, en cuatro líneas</span>
+wsaa = <span class="k">WSAA</span>.from_alias(<span class="c">"miapp"</span>, Environment.HOMOLOGACION)  <span class="c"># <a href="#certificado">certs/</a></span>
+wsfe = <span class="k">WSFE</span>(wsaa)                  <span class="c"># la CUIT sale del cert</span>
+factura = wsfe.create_invoice_c(           <span class="c"># <a href="#auth">TA</a> + <a href="#factura">CAE</a></span>
+    punto_venta=1, importe_total=<span class="c">"1500.00"</span>)
+factura.numero, factura.cae              <span class="c"># → <a href="#despues">QR / PDF</a></span></pre>
+    <figcaption>Crear los objetos no toca la red. La primera llamada a ARCA ocurre dentro de <code>create_invoice_c</code>, que pide el ticket si hace falta.</figcaption>
+  </figure>
+</header>
+
+<section aria-labelledby="gloss-h">
+  <div class="sec-head"><h2 id="gloss-h">Vocabulario mínimo</h2></div>
+  <dl class="gloss">
+    <div><dt>WSAA</dt><dd>Web service de autenticación. Recibe tu firma y devuelve un ticket.</dd></div>
+    <div><dt>TRA</dt><dd>Ticket de Requerimiento de Acceso: el XML que firmás para pedir el ticket.</dd></div>
+    <div><dt>CMS</dt><dd>El TRA firmado con tu clave privada (PKCS#7, en Base64).</dd></div>
+    <div><dt>TA</dt><dd>Ticket de Acceso: <code>token</code> + <code>sign</code>. Vale 12 h y no se puede pedir otro mientras haya uno vigente.</dd></div>
+    <div><dt>WSFEv1</dt><dd>Web service de factura electrónica. Autoriza comprobantes.</dd></div>
+    <div><dt>CAE</dt><dd>Código de Autorización Electrónico: lo que hace válida a la factura.</dd></div>
+    <div><dt>CbteTipo</dt><dd>Tipo de comprobante: Factura, Nota de Crédito o de Débito en clase A, B o C (por ejemplo, 11 es Factura C). El número es correlativo por punto de venta y tipo.</dd></div>
+    <div><dt>Homologación</dt><dd>Ambiente de prueba. Emite de verdad (consume numeración), pero sin validez fiscal.</dd></div>
+  </dl>
+</section>
+
+<section id="mapa" aria-labelledby="mapa-h">
+  <div class="sec-head">
+    <span class="eyebrow">01 · Estructura</span>
+    <h2 id="mapa-h">Mapa de módulos</h2>
+    <p>Hay un cliente por web service (WSFE, WSCDC, WSPCI) y todos dependen de <code>WSAA</code> para conseguir el ticket. Todo el tráfico SOAP pasa por <code>transport.py</code>.</p>
+  </div>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 880 640" role="img" aria-label="Los tres clientes de servicio piden el ticket al cliente WSAA, que firma con tra.py y signer.py y guarda el ticket en cache.py. Todas las llamadas SOAP salen por transport.py hacia los cuatro servidores de ARCA.">
+        <defs>
+          <marker id="mk-fg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-fg"/></marker>
+          <marker id="mk-ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-accent"/></marker>
+          <marker id="mk-mu" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-muted"/></marker>
+        </defs>
+
+        <!-- Tu código -->
+        <rect x="40" y="16" width="800" height="44" rx="8" class="box"/>
+        <text x="440" y="43" text-anchor="middle" class="t-title">Tu código · examples/*.py</text>
+
+        <!-- flechas a clientes -->
+        <line x1="130" y1="60" x2="130" y2="108" class="edge" marker-end="url(#mk-fg)"/>
+        <line x1="330" y1="60" x2="330" y2="108" class="edge" marker-end="url(#mk-fg)"/>
+        <line x1="520" y1="60" x2="520" y2="108" class="edge" marker-end="url(#mk-fg)"/>
+        <line x1="750" y1="60" x2="750" y2="108" class="edge-muted" marker-end="url(#mk-mu)"/>
+        <text x="138" y="88" class="t-lbl">create_invoice_c()</text>
+        <text x="338" y="88" class="t-lbl">verify_qr()</text>
+        <text x="528" y="88" class="t-lbl">get_constancia()</text>
+        <text x="758" y="88" class="t-lbl lbl-ret">uv run</text>
+
+        <!-- clientes -->
+        <rect x="40" y="110" width="180" height="58" rx="8" class="box"/>
+        <text x="130" y="134" text-anchor="middle" class="t-title">WSFE</text>
+        <text x="130" y="153" text-anchor="middle" class="t-sub">wsfe/client.py · "wsfe"</text>
+
+        <rect x="250" y="110" width="160" height="58" rx="8" class="box"/>
+        <text x="330" y="134" text-anchor="middle" class="t-title">WSCDC</text>
+        <text x="330" y="153" text-anchor="middle" class="t-sub">constatación · "wscdc"</text>
+
+        <rect x="440" y="110" width="160" height="58" rx="8" class="box"/>
+        <text x="520" y="134" text-anchor="middle" class="t-title">WSPCI</text>
+        <text x="520" y="153" text-anchor="middle" class="t-sub">padrón · constancia</text>
+
+        <rect x="660" y="110" width="180" height="58" rx="8" class="box"/>
+        <text x="750" y="134" text-anchor="middle" class="t-title">arca-setup</text>
+        <text x="750" y="153" text-anchor="middle" class="t-sub">setup_wizard.py</text>
+
+        <!-- qr / pdf -->
+        <line x1="80" y1="168" x2="80" y2="218" class="edge-muted" marker-end="url(#mk-mu)"/>
+        <rect x="40" y="220" width="120" height="50" rx="8" class="box"/>
+        <text x="100" y="242" text-anchor="middle" class="t-title">qr.py · pdf.py</text>
+        <text x="100" y="259" text-anchor="middle" class="t-sub">después del CAE</text>
+
+        <!-- clientes -> WSAA -->
+        <path d="M190,168 V248 H246" class="edge-accent" marker-end="url(#mk-ac)"/>
+        <line x1="330" y1="168" x2="330" y2="218" class="edge-accent" marker-end="url(#mk-ac)"/>
+        <line x1="520" y1="168" x2="520" y2="218" class="edge-accent" marker-end="url(#mk-ac)"/>
+        <text x="198" y="200" class="t-lbl" style="fill: var(--accent)">get_ticket(servicio)</text>
+
+        <!-- WSAA -->
+        <rect x="250" y="220" width="350" height="58" rx="8" class="box-hub"/>
+        <text x="425" y="244" text-anchor="middle" class="t-title">WSAA · wsaa/client.py</text>
+        <text x="425" y="263" text-anchor="middle" class="t-sub">devuelve token + sign, del caché o pidiéndolo</text>
+
+        <!-- setup -> certificates -->
+        <line x1="750" y1="168" x2="750" y2="218" class="edge" marker-end="url(#mk-fg)"/>
+        <rect x="660" y="220" width="180" height="58" rx="8" class="box"/>
+        <text x="750" y="244" text-anchor="middle" class="t-title">certificates.py</text>
+        <text x="750" y="263" text-anchor="middle" class="t-sub">clave, CSR, CUIT</text>
+        <line x1="660" y1="249" x2="604" y2="249" class="edge" marker-end="url(#mk-fg)"/>
+        <text x="632" y="241" text-anchor="middle" class="t-sub">PEM</text>
+
+        <line x1="750" y1="278" x2="750" y2="318" class="edge" marker-end="url(#mk-fg)"/>
+        <text x="758" y="302" class="t-lbl">escribe 0600</text>
+        <rect x="660" y="320" width="180" height="50" rx="8" class="box-disk"/>
+        <text x="750" y="342" text-anchor="middle" class="t-title">certs/&lt;amb&gt;/</text>
+        <text x="750" y="359" text-anchor="middle" class="t-sub">&lt;alias&gt;.key · .crt</text>
+
+        <!-- submódulos WSAA -->
+        <line x1="290" y1="278" x2="290" y2="318" class="edge" marker-end="url(#mk-fg)"/>
+        <line x1="380" y1="278" x2="380" y2="318" class="edge" marker-end="url(#mk-fg)"/>
+        <line x1="470" y1="278" x2="470" y2="318" class="edge" marker-end="url(#mk-fg)"/>
+        <line x1="560" y1="278" x2="560" y2="318" class="edge" marker-end="url(#mk-fg)"/>
+        <rect x="250" y="320" width="80" height="50" rx="7" class="box"/>
+        <text x="290" y="341" text-anchor="middle" class="t-title">tra.py</text>
+        <text x="290" y="358" text-anchor="middle" class="t-sub">arma XML</text>
+        <rect x="340" y="320" width="80" height="50" rx="7" class="box"/>
+        <text x="380" y="341" text-anchor="middle" class="t-title">signer.py</text>
+        <text x="380" y="358" text-anchor="middle" class="t-sub">firma CMS</text>
+        <rect x="430" y="320" width="80" height="50" rx="7" class="box"/>
+        <text x="470" y="341" text-anchor="middle" class="t-title">ticket.py</text>
+        <text x="470" y="358" text-anchor="middle" class="t-sub">parsea TA</text>
+        <rect x="520" y="320" width="80" height="50" rx="7" class="box"/>
+        <text x="560" y="341" text-anchor="middle" class="t-title">cache.py</text>
+        <text x="560" y="358" text-anchor="middle" class="t-sub">guarda TA</text>
+
+        <line x1="560" y1="370" x2="560" y2="398" class="edge" marker-end="url(#mk-fg)"/>
+        <rect x="440" y="400" width="240" height="40" rx="8" class="box-disk"/>
+        <text x="560" y="425" text-anchor="middle" class="t-sub">~/.cache/arca-client/tickets/*.json</text>
+
+        <!-- transport -->
+        <rect x="40" y="466" width="800" height="44" rx="8" class="band"/>
+        <text x="440" y="486" text-anchor="middle" class="t-title">transport.py · requests + zeep</text>
+        <text x="440" y="502" text-anchor="middle" class="t-sub">lo usan los 4 clientes SOAP · operation_timeout · SECLEVEL=1 donde hace falta</text>
+
+        <!-- servidores -->
+        <rect x="30" y="532" width="820" height="100" rx="10" class="group"/>
+        <text x="44" y="550" class="t-sub">SERVIDORES DE ARCA</text>
+        <line x1="130" y1="510" x2="130" y2="560" class="edge-accent" marker-end="url(#mk-ac)"/>
+        <line x1="340" y1="510" x2="340" y2="560" class="edge" marker-end="url(#mk-fg)"/>
+        <line x1="545" y1="510" x2="545" y2="560" class="edge" marker-end="url(#mk-fg)"/>
+        <line x1="750" y1="510" x2="750" y2="560" class="edge" marker-end="url(#mk-fg)"/>
+        <rect x="40" y="562" width="180" height="58" rx="8" class="box-hub"/>
+        <text x="130" y="586" text-anchor="middle" class="t-title">WSAA · LoginCms</text>
+        <text x="130" y="605" text-anchor="middle" class="t-sub">wsaa[homo].afip.gov.ar</text>
+        <rect x="250" y="562" width="180" height="58" rx="8" class="box"/>
+        <text x="340" y="586" text-anchor="middle" class="t-title">WSFEv1</text>
+        <text x="340" y="605" text-anchor="middle" class="t-sub">wswhomo · servicios1</text>
+        <rect x="460" y="562" width="170" height="58" rx="8" class="box"/>
+        <text x="545" y="586" text-anchor="middle" class="t-title">WSCDC</text>
+        <text x="545" y="605" text-anchor="middle" class="t-sub">wswhomo · servicios1</text>
+        <rect x="660" y="562" width="180" height="58" rx="8" class="box"/>
+        <text x="750" y="586" text-anchor="middle" class="t-title">Padrón A5</text>
+        <text x="750" y="605" text-anchor="middle" class="t-sub">awshomo · aws</text>
+      </svg>
+    </div>
+    <figcaption>En azul, el camino que comparten todos los servicios: piden el ticket a <code>WSAA</code>, que es el único que habla con <code>LoginCms</code>. Las líneas punteadas son pasos opcionales o manuales. <code>SECLEVEL=1</code> se aplica a todo homologación y, en producción, solo a <code>servicios1.afip.gov.ar</code>, que usa una clave DH chica que OpenSSL 3 rechaza.</figcaption>
+  </figure>
+</section>
+
+<section id="auth" aria-labelledby="auth-h">
+  <div class="sec-head">
+    <span class="eyebrow">02 · Autenticación</span>
+    <h2 id="auth-h">Cómo se consigue el ticket (WSAA)</h2>
+    <p>Cada operación de WSFE, WSCDC y WSPCI llama a <code>get_ticket(servicio)</code>. Casi siempre el ticket ya está en el caché. Solo cuando falta o vence se firma un TRA y se llama a ARCA.</p>
+  </div>
+  <div class="seq" data-seq="auth"></div>
+</section>
+
+<section id="factura" aria-labelledby="factura-h">
+  <div class="sec-head">
+    <span class="eyebrow">03 · Facturación</span>
+    <h2 id="factura-h">Cómo se emite un comprobante</h2>
+    <p><code>WSFE</code> autoriza facturas, notas de crédito y notas de débito de clase A, B y C. Los nueve métodos <code>create_*</code> cambian en cómo se informan los importes y el receptor, pero todos terminan en el mismo <code>_create</code> → <code>_emitir</code>, así que la numeración, el pedido del CAE y el manejo de cortes son idénticos.</p>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Clase</th><th>Factura</th><th>Notas de crédito / débito</th><th>Importes y receptor</th></tr></thead>
+      <tbody>
+        <tr><td>A (1, 3, 2)</td><td><code>create_invoice_a</code></td><td><code>create_credit_note_a</code> · <code>create_debit_note_a</code></td><td>Neto por alícuota, el IVA se discrimina. Receptor siempre con CUIT y condición de IVA válida para A.</td></tr>
+        <tr><td>B (6, 8, 7)</td><td><code>create_invoice_b</code></td><td><code>create_credit_note_b</code> · <code>create_debit_note_b</code></td><td>Neto por alícuota, como en A. Consumidor final sin identificar por defecto.</td></tr>
+        <tr><td>C (11, 13, 12)</td><td><code>create_invoice_c</code></td><td><code>create_credit_note_c</code> · <code>create_debit_note_c</code></td><td>Solo <code>importe_total</code>: en C no se discrimina IVA. Monotributo.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Las notas reciben además el comprobante que corrigen (<code>asociado</code>, de la misma letra) o un <code>periodo</code>. El número no lo elegís vos: se calcula como el último autorizado + 1 para ese punto de venta y tipo. Por eso el riesgo principal no es un rechazo sino un corte de red justo después de enviar, cuando no se sabe si ARCA llegó a autorizar. El diagrama sigue una Factura C; para las demás solo cambian el tipo y la validación previa.</p>
+  <div class="seq" data-seq="wsfe"></div>
+  <p class="callout danger"><strong>Nunca reintentes un <code>create_*</code> a ciegas.</strong> Vuelve a calcular el número y, si el primer intento sí se autorizó, emitís dos facturas. El paquete ya verifica con <code>FECompConsultar</code> y te dice en <code>safe_to_retry</code> si podés reintentar.</p>
+</section>
+
+<section id="despues" aria-labelledby="despues-h">
+  <div class="sec-head">
+    <span class="eyebrow">04 · Después del CAE</span>
+    <h2 id="despues-h">QR, PDF y verificación</h2>
+    <p>El QR y el PDF se arman sin conectarse a nada, con lo que devolvió ARCA. El que recibe la factura puede verificarla con WSCDC leyendo ese mismo QR.</p>
+  </div>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 880 230" role="img" aria-label="El ComprobanteAutorizado se convierte en una URL de QR con qr_url y en un PDF con render_invoice_pdf, sin llamar a ARCA. Quien recibe la factura pasa la URL del QR a WSCDC.verify_qr, que llama a ComprobanteConstatar.">
+        <defs>
+          <marker id="mk2-fg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-fg"/></marker>
+          <marker id="mk2-ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-accent"/></marker>
+        </defs>
+        <text x="20" y="22" class="t-sub">TU LADO (EMISOR) · SIN RED</text>
+        <rect x="20" y="34" width="190" height="60" rx="8" class="box-hub"/>
+        <text x="115" y="59" text-anchor="middle" class="t-title">ComprobanteAutorizado</text>
+        <text x="115" y="78" text-anchor="middle" class="t-sub">numero · cae · importes</text>
+        <line x1="210" y1="64" x2="262" y2="64" class="edge" marker-end="url(#mk2-fg)"/>
+        <rect x="264" y="34" width="180" height="60" rx="8" class="box"/>
+        <text x="354" y="59" text-anchor="middle" class="t-title">qr_url(factura)</text>
+        <text x="354" y="78" text-anchor="middle" class="t-sub">wsfe/qr.py:35 · RG 4892</text>
+        <line x1="444" y1="64" x2="496" y2="64" class="edge" marker-end="url(#mk2-fg)"/>
+        <rect x="498" y="34" width="190" height="60" rx="8" class="box"/>
+        <text x="593" y="59" text-anchor="middle" class="t-title">render_invoice_pdf()</text>
+        <text x="593" y="78" text-anchor="middle" class="t-sub">wsfe/pdf.py:131 · extra [pdf]</text>
+        <line x1="688" y1="64" x2="740" y2="64" class="edge" marker-end="url(#mk2-fg)"/>
+        <rect x="742" y="34" width="118" height="60" rx="8" class="box-disk"/>
+        <text x="801" y="59" text-anchor="middle" class="t-title">PDF con QR</text>
+        <text x="801" y="78" text-anchor="middle" class="t-sub">bytes</text>
+
+        <text x="20" y="140" class="t-sub">EL RECEPTOR · CONSULTA A ARCA</text>
+        <path d="M801,94 V186 H690" class="edge-accent" marker-end="url(#mk2-ac)"/>
+        <text x="810" y="146" class="t-lbl" style="fill: var(--accent)">lee el QR</text>
+        <rect x="498" y="156" width="190" height="60" rx="8" class="box"/>
+        <text x="593" y="181" text-anchor="middle" class="t-title">WSCDC.verify_qr(url)</text>
+        <text x="593" y="200" text-anchor="middle" class="t-sub">parse_qr_url valida antes</text>
+        <line x1="498" y1="186" x2="446" y2="186" class="edge" marker-end="url(#mk2-fg)"/>
+        <rect x="264" y="156" width="180" height="60" rx="8" class="box"/>
+        <text x="354" y="181" text-anchor="middle" class="t-title">ComprobanteConstatar</text>
+        <text x="354" y="200" text-anchor="middle" class="t-sub">WSCDC de ARCA</text>
+        <line x1="264" y1="186" x2="212" y2="186" class="edge" marker-end="url(#mk2-fg)"/>
+        <rect x="20" y="156" width="190" height="60" rx="8" class="box"/>
+        <text x="115" y="181" text-anchor="middle" class="t-title">Constatacion</text>
+        <text x="115" y="200" text-anchor="middle" class="t-sub">A = aprobado · R = no</text>
+      </svg>
+    </div>
+    <figcaption>El QR codifica <code>https://www.arca.gob.ar/fe/qr/?p=</code> seguido de un JSON en Base64 con CUIT, punto de venta, tipo, número, importe y CAE. El PDF valida que los ítems sumen lo que ARCA autorizó: si no coinciden, lanza <code>ValueError</code>.</figcaption>
+  </figure>
+</section>
+
+<section id="certificado" aria-labelledby="cert-h">
+  <div class="sec-head">
+    <span class="eyebrow">05 · Puesta en marcha</span>
+    <h2 id="cert-h">De dónde salen el certificado y la clave (arca-setup)</h2>
+    <p>Esto se hace una vez por ambiente. La clave privada se genera en tu máquina y nunca sale de ahí. A ARCA solo viaja el CSR, que es público, y ARCA devuelve el certificado firmado.</p>
+  </div>
+  <div class="seq" data-seq="cert"></div>
+</section>
+
+<section id="errores" aria-labelledby="err-h">
+  <div class="sec-head">
+    <span class="eyebrow">06 · Qué puede salir mal</span>
+    <h2 id="err-h">Errores y qué hacer con cada uno</h2>
+    <p>Todos heredan de <code>ArcaError</code> (<code>exceptions.py</code>). La pregunta importante es siempre la misma: ¿se emitió algo o no?</p>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Excepción</th><th>Cuándo</th><th>¿Se emitió?</th><th>Qué hacer</th></tr></thead>
+      <tbody>
+        <tr><td>WSAAError</td><td>El WSAA rechazó el login. <code>.code</code> trae el código, por ejemplo <code>coe.alreadyAuthenticated</code> o <code>cms.cert.expired</code>.</td><td><span class="pill ok">nada</span></td><td>Si <code>.retryable</code> es verdadero (<code>wsaa.*</code>, <code>wsn.unavailable</code>), reintentar después de 60 s. Si es <code>alreadyAuthenticated</code> sin TA en caché, esperar a que venza (hasta 12 h).</td></tr>
+        <tr><td>WSFEError</td><td>ARCA respondió con un rechazo explícito. <code>.codes</code>, errores y observaciones.</td><td><span class="pill ok">no</span></td><td>Corregir los datos. Un rechazo no consume número.</td></tr>
+        <tr><td>WSFEConnectionError</td><td>Se cortó la comunicación al pedir el CAE y la verificación no pudo confirmar la emisión.</td><td><span class="pill mid">ver safe_to_retry</span></td><td><code>True</code>: ARCA no lo registra, se puede reintentar. <code>False</code>: no reintentar, consultar <code>get_voucher(pv, tipo, .numero)</code> cuando vuelva la conexión.</td></tr>
+        <tr><td>RespuestaNoReconocida</td><td>ARCA respondió algo que no se pudo interpretar. Dentro de <code>create_*</code> dispara la verificación y termina como <code>WSFEConnectionError</code>.</td><td><span class="pill no">quizás</span></td><td>Nunca tratarla como rechazo. La respuesta completa está en <code>.respuesta</code> y no va al mensaje, para que no quede en los logs.</td></tr>
+        <tr><td>WSCDCError</td><td>Error de la constatación de comprobantes.</td><td><span class="pill ok">n/a</span></td><td>Solo consulta: es seguro reintentar.</td></tr>
+        <tr><td>WSPCIError · PersonaNoEncontrada</td><td>Error del padrón, o la CUIT no existe.</td><td><span class="pill ok">n/a</span></td><td>Solo consulta. Una CUIT inactiva no lanza error: viene en <code>errores_constancia</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>Generado a partir del código de <code>arca-client</code> (rama <code>main</code>, commit 7a49d55). Las referencias <code>archivo:línea</code> son relativas a <code>src/arca_client/</code>.</footer>
+</div>
+
+<script>
+const LANES = {
+  auth: [
+    { id: "app", label: "WSFE / WSCDC / WSPCI", sub: "quien pide el TA" },
+    { id: "wsaa", label: "WSAA", sub: "wsaa/client.py" },
+    { id: "cache", label: "FileTicketCache", sub: "wsaa/cache.py" },
+    { id: "arca", label: "WSAA de ARCA", sub: "LoginCms", ext: true },
+  ],
+  wsfe: [
+    { id: "app", label: "Tu código", sub: "" },
+    { id: "wsfe", label: "WSFE", sub: "wsfe/client.py" },
+    { id: "wsaa", label: "WSAA + caché", sub: "ver sección 02" },
+    { id: "arca", label: "WSFEv1 de ARCA", sub: "service.asmx", ext: true },
+  ],
+  cert: [
+    { id: "setup", label: "arca-setup", sub: "setup_wizard.py" },
+    { id: "disk", label: "Disco", sub: "certs/<amb>/" },
+    { id: "web", label: "Vos, en ARCA web", sub: "con clave fiscal", ext: true },
+    { id: "wsaa", label: "WSAA", sub: "primer login", ext: true },
+  ],
+};
+
+const P = (s) => `<p>${s}</p>`;
+
+const authMiss = [
+  { f: "app", t: "wsaa", k: "call", l: 'get_ticket("wsfe")', h: "Pedir un ticket",
+    b: P("Lo llama <code>WSFE._auth()</code> antes de cada operación. La clave del caché combina ambiente, servicio y huella del certificado, por ejemplo <code>homologacion-wsfe-3fa1c09e…</code>.") + P("Así dos certificados o dos ambientes nunca comparten ticket."),
+    r: "wsaa/client.py:74 · _cache_key :128" },
+  { f: "wsaa", t: "cache", k: "call", l: "get(key)", h: "Buscar en el caché",
+    b: P("Lee <code>~/.cache/arca-client/tickets/&lt;key&gt;.json</code>. Antes verifica que la carpeta sea tuya y privada (0700). Si no lo es, lanza <code>ArcaError</code> en lugar de usarla.") + P("La ruta se cambia con <code>$ARCA_TA_CACHE</code> o <code>$XDG_CACHE_HOME</code>."),
+    r: "wsaa/cache.py:110" },
+  { f: "cache", t: "wsaa", k: "ret", l: "None o vencido", h: "No hay ticket útil",
+    b: P("Puede no existir el archivo, o el TA puede estar a menos de 5 minutos de vencer (<code>is_valid()</code> usa ese margen).") + P("No se exige que <code>generation_time</code> sea pasado: si tu reloj atrasa, un TA recién emitido parecería del futuro y se pediría otro."),
+    r: "wsaa/ticket.py:37" },
+  { f: "wsaa", t: "cache", k: "call", l: "lock(key)", h: "Tomar el lock",
+    b: P("Bloqueo exclusivo (<code>flock</code>) sobre <code>&lt;key&gt;.lock</code>. Si varios procesos o hilos piden el TA a la vez, solo uno llama al WSAA. Los demás esperan y después lo leen del caché.") + P("Sin esto, el segundo recibiría <code>coe.alreadyAuthenticated</code>. El sistema operativo libera el lock aunque el proceso muera."),
+    r: "wsaa/cache.py:94 · client.py:81" },
+  { f: "wsaa", t: "cache", k: "call", l: "get(key) otra vez", h: "Volver a mirar el caché",
+    b: P("Mientras se esperaba el lock, otro proceso pudo haber conseguido el TA. Si ahora hay uno vigente, se devuelve y no se llama a ARCA."),
+    r: "wsaa/client.py:84" },
+  { f: "wsaa", t: "wsaa", k: "self", l: "build_tra(servicio)", h: "Armar el TRA",
+    b: P("XML <code>loginTicketRequest</code> con <code>uniqueId</code>, el servicio y una ventana de validez de <code>ahora − 10 min</code> a <code>ahora + 10 min</code>. Esa ventana tolera desfasajes de reloj."),
+    r: "wsaa/tra.py:10" },
+  { f: "wsaa", t: "wsaa", k: "self", l: "sign_tra(tra, cert, key)", h: "Firmar con tu clave",
+    b: P("CMS / PKCS#7 <em>SignedData</em> con el contenido adjunto, como exige el WSAA. Usa SHA-256, se serializa en DER y se codifica en Base64.") + P("Esta firma es la prueba de que sos el dueño del certificado."),
+    r: "wsaa/signer.py:18" },
+  { f: "wsaa", t: "arca", k: "call", l: "loginCms(in0=cms)", h: "Llamar al WSAA",
+    b: P("SOAP con zeep a través de <code>make_transport()</code>, con timeout. El cliente zeep se crea la primera vez y se reutiliza."),
+    r: "wsaa/client.py:119 · transport.py:27" },
+  { f: "arca", t: "wsaa", k: "ret", l: "loginTicketResponse", h: "ARCA devuelve el TA",
+    b: P("XML con <code>credentials/token</code>, <code>credentials/sign</code> y <code>header/expirationTime</code>, unas 12 h después."),
+    r: "wsaa/ticket.py:22 (from_xml)" },
+  { f: "wsaa", t: "cache", k: "call", l: "set(key, ticket)", h: "Guardar el TA",
+    b: P("Escritura atómica: primero a un temporal único (0600) y después <code>os.replace</code>. Nadie puede ver un archivo a medio escribir ni plantar un symlink.") + P("El token y el sign son credenciales: por eso los permisos privados."),
+    r: "wsaa/cache.py:124" },
+  { f: "wsaa", t: "app", k: "ret", l: "AccessTicket", h: "Devolver token + sign",
+    b: P("Se libera el lock. WSFE arma <code>Auth = {Token, Sign, Cuit}</code>; la CUIT sale del <code>serialNumber</code> del certificado si no la pasaste."),
+    r: "wsfe/client.py:705 · certificates.py:109" },
+];
+
+const authHit = [
+  authMiss[0],
+  authMiss[1],
+  { f: "cache", t: "wsaa", k: "ok", l: "AccessTicket", h: "Hay un TA guardado",
+    b: P("Se deserializa el JSON a <code>AccessTicket</code>. Si el archivo está corrupto se trata como si no existiera."),
+    r: "wsaa/cache.py:110" },
+  { f: "wsaa", t: "wsaa", k: "self", l: "is_valid()", h: "¿Le quedan más de 5 minutos?",
+    b: P("Si le queda al menos el margen de 5 minutos, se usa tal cual. Este es el caso normal: un TA dura 12 h, así que en un día de trabajo se pide una o dos veces."),
+    r: "wsaa/ticket.py:37 · client.py:95" },
+  { f: "wsaa", t: "app", k: "ret", l: "AccessTicket", h: "Devolver sin tocar la red",
+    b: P("Ninguna llamada a ARCA. No hace falta lock porque solo se lee."),
+    r: "wsaa/client.py:77" },
+];
+
+const authAlready = [
+  authMiss[0],
+  { f: "wsaa", t: "cache", k: "ret", l: "get → None", h: "El caché está vacío",
+    b: P("Por ejemplo: borraste <code>~/.cache/arca-client/tickets/</code>, cambiaste <code>$ARCA_TA_CACHE</code> o el TA se pidió desde otra máquina con el mismo certificado."),
+    r: "wsaa/cache.py:110" },
+  { f: "wsaa", t: "arca", k: "call", l: "loginCms(cms)", h: "Se pide un TA nuevo",
+    b: P("Mismo camino que en «TA nuevo»: TRA, firma, llamada."),
+    r: "wsaa/client.py:99" },
+  { f: "arca", t: "wsaa", k: "err", l: "Fault coe.alreadyAuthenticated", h: "ARCA no da otro",
+    b: P("ARCA no emite un TA mientras haya uno vigente para ese certificado y servicio, y tampoco te devuelve el que ya existe.") + P("<code>_fault_code</code> limpia el prefijo <code>ns1:</code> del código de Axis."),
+    r: "wsaa/client.py:106 · _fault_code :133" },
+  { f: "wsaa", t: "cache", k: "call", l: "get(key)", h: "Último intento: el caché",
+    b: P("Con un backend de caché sin lock, otro proceso pudo ganar la carrera y guardar el TA. Si está, se usa."),
+    r: "wsaa/client.py:88" },
+  { f: "wsaa", t: "app", k: "err", l: "WSAAError", h: "Hay que esperar",
+    b: P("Si no estaba en el caché, no hay forma de recuperarlo: hay que esperar a que venza, hasta 12 h.") + P("<strong>Por eso no se borra la carpeta de tickets ni se usa <code>force=True</code>.</strong>"),
+    r: "wsaa/client.py:107-113" },
+];
+
+const wsfeBase = [
+  { f: "app", t: "wsfe", k: "call", l: 'create_invoice_c(1, "1500.00")', h: "Pedir la factura",
+    b: P("Punto de venta e importe total. Por defecto es consumidor final (<code>DocTipo 99</code>, <code>doc_nro=0</code>) y concepto productos.") + P("Para servicios hacen falta <code>servicio_desde</code> y <code>servicio_hasta</code>."),
+    r: "wsfe/client.py:350" },
+  { f: "wsfe", t: "wsfe", k: "self", l: "_create_c → _create", h: "Validar y armar el detalle",
+    b: P("Todo se valida antes de tocar la red: importes en <code>Decimal</code> con redondeo <em>half even</em>, condición de IVA del receptor y fechas de servicio. La fecha se toma en hora argentina (UTC−3).") + P("En C no se discrimina IVA: neto = total − tributos."),
+    r: "wsfe/client.py:511 · _create :548 · _importes_c :815" },
+  { f: "wsfe", t: "wsaa", k: "call", l: 'get_ticket("wsfe")', h: "Conseguir el ticket",
+    b: P("Todo lo de la sección 02. Casi siempre sale del caché."),
+    r: "wsfe/client.py:705 (_auth)" },
+  { f: "wsaa", t: "wsfe", k: "ret", l: "Token, Sign", h: "Auth listo",
+    b: P("<code>{Token, Sign, Cuit}</code> va en cada llamada a WSFEv1."),
+    r: "wsfe/client.py:707" },
+  { f: "wsfe", t: "arca", k: "call", l: "FECompUltimoAutorizado", h: "¿Cuál fue el último número?",
+    b: P("Con <code>PtoVta</code> y <code>CbteTipo=11</code> (Factura C). Es solo una consulta: siempre es segura."),
+    r: "wsfe/client.py:103" },
+  { f: "arca", t: "wsfe", k: "ret", l: "CbteNro = N", h: "Último autorizado",
+    b: P("0 si nunca se emitió nada en ese punto de venta y tipo."),
+    r: "wsfe/client.py:111" },
+  { f: "wsfe", t: "arca", k: "call", l: "FECAESolicitar(N + 1)", h: "Pedir el CAE",
+    b: P("<code>FeCabReq</code> (cantidad 1, punto de venta, tipo) y <code>FeDetReq.FECAEDetRequest</code> con <code>CbteDesde = CbteHasta = N + 1</code>.") + P("<strong>En homologación esto emite de verdad</strong> y consume numeración."),
+    r: "wsfe/client.py:608 (_emitir) · :625" },
+];
+
+const wsfeHappy = [
+  ...wsfeBase,
+  { f: "arca", t: "wsfe", k: "ok", l: 'Resultado "A" + CAE', h: "Autorizado",
+    b: P("Respuesta con <code>FeDetResp.FECAEDetResponse</code>: <code>Resultado</code>, <code>CAE</code>, <code>CAEFchVto</code> y posibles <code>Observaciones.Obs</code>.") + P("Los nombres salen del WSDL (<code>tests/fixtures/wsfev1.wsdl</code>), no del manual, que tiene errores."),
+    r: "wsfe/client.py:928 (_parse_cae_response)" },
+  { f: "wsfe", t: "app", k: "ret", l: "ComprobanteAutorizado", h: "Factura emitida",
+    b: P("Dataclass con <code>numero</code>, <code>cae</code>, <code>cae_vencimiento</code>, importes, receptor y observaciones. Con esto se arman el QR y el PDF (sección 04)."),
+    r: "wsfe/types.py" },
+];
+
+const wsfeRace = [
+  ...wsfeBase,
+  { f: "arca", t: "wsfe", k: "err", l: "Err 10016", h: "Rechazo: número no es el próximo",
+    b: P("Otro proceso usó N + 1 entre la consulta y el pedido. Es un rechazo explícito: <strong>no se emitió nada</strong> y no se consumió número."),
+    r: "wsfe/client.py:40 (NEXT_NUMBER_MISMATCH) · :627" },
+  { f: "wsfe", t: "arca", k: "call", l: "FECompUltimoAutorizado", h: "Volver a consultar",
+    b: P("Para confirmar que el rechazo fue realmente por numeración."),
+    r: "wsfe/client.py:631" },
+  { f: "arca", t: "wsfe", k: "ret", l: "CbteNro = N + 1", h: "El último avanzó",
+    b: P("Si el último <em>no</em> avanzó, el 10016 se debe a otra causa (por ejemplo, la fecha es anterior a la del último comprobante) y se lanza <code>WSFEError</code> sin reintentar."),
+    r: "wsfe/client.py:632" },
+  { f: "wsfe", t: "arca", k: "call", l: "FECAESolicitar(N + 2)", h: "Reintento con el siguiente",
+    b: P("Hasta <code>numbering_attempts</code> veces (3 por defecto). Este es el único reintento automático de emisión, y es seguro porque ARCA confirmó que no se emitió nada."),
+    r: "wsfe/client.py:613" },
+  { f: "arca", t: "wsfe", k: "ok", l: 'Resultado "A" + CAE', h: "Autorizado",
+    b: P("Sigue igual que el camino feliz."),
+    r: "wsfe/client.py:626" },
+  { f: "wsfe", t: "app", k: "ret", l: "ComprobanteAutorizado", h: "Factura emitida con N + 2", b: P("Tu código no se entera del reintento."), r: "" },
+];
+
+const wsfeCut = [
+  ...wsfeBase,
+  { f: "arca", t: "wsfe", k: "err", l: "timeout / corte / ???", h: "No hay respuesta clara",
+    b: P("Puede ser timeout, conexión cortada, XML roto o una respuesta sin <code>FECAEDetResponse</code> (<code>RespuestaNoReconocida</code>).") + P("ARCA <em>pudo</em> haber autorizado igual. Nunca se informa como rechazo."),
+    r: "wsfe/client.py:55 (_COMMUNICATION_ERRORS) · :634" },
+  { f: "wsfe", t: "arca", k: "call", l: "FECompConsultar(N + 1)", h: "Verificar qué pasó",
+    b: P("<code>_recover</code> consulta ese número exacto con <code>get_voucher</code>. Hace hasta <code>recovery_attempts</code> intentos (3), con <code>recovery_delay</code> de 2 s entre cada uno."),
+    r: "wsfe/client.py:637 (_recover) · get_voucher :113" },
+  { f: "arca", t: "wsfe", k: "ret", l: "existe / 602 / falla", h: "Tres respuestas posibles",
+    b: "<ul><li><strong>Existe con los mismos datos</strong> (importes, documento, fecha): fue autorizado.</li><li><strong>602, no existe</strong>: no se emitió.</li><li><strong>Existe con otros datos</strong>, o no se pudo consultar: incierto.</li></ul>",
+    r: "wsfe/client.py:669-695" },
+  { f: "wsfe", t: "app", k: "err", l: "factura o WSFEConnectionError", h: "Resultado para tu código",
+    b: "<ul><li>Autorizado → devuelve <code>ComprobanteAutorizado</code> con el CAE registrado en ARCA, como si nada.</li><li>No existe → <code>WSFEConnectionError(safe_to_retry=True)</code>: podés reintentar.</li><li>Incierto → <code>safe_to_retry=False</code>: <strong>no reintentes</strong>, consultá <code>get_voucher(pv, tipo, err.numero)</code> más tarde.</li></ul>",
+    r: "exceptions.py:85" },
+];
+
+const certCommon = (web) => [
+  { f: "setup", t: "setup", k: "self", l: "collect_data()", h: "Datos del certificado",
+    b: P("Ambiente, CUIT (valida el dígito verificador, módulo 11), razón social y un alias de solo letras y números."),
+    r: "setup_wizard.py:124" },
+  { f: "setup", t: "disk", k: "call", l: "<alias>.key", h: "Generar la clave privada",
+    b: P("RSA de 2048 bits, opcionalmente con contraseña. Se escribe con permisos 0600.") + P("<strong>No se puede recuperar</strong>: si la perdés, hay que hacer un certificado nuevo."),
+    r: "setup_wizard.py:162 · certificates.py:40" },
+  { f: "setup", t: "disk", k: "call", l: "<alias>.csr", h: "Generar el CSR",
+    b: P("Pedido de firma con el DN que exige ARCA: <code>C=AR</code>, <code>O=</code>razón social, <code>CN=</code>alias, <code>serialNumber=CUIT 20…</code>.") + P("De ese <code>serialNumber</code> sale después la CUIT que usa WSFE."),
+    r: "certificates.py:57 (build_csr)" },
+  ...web,
+  { f: "setup", t: "setup", k: "self", l: "certificate_matches_key", h: "¿El certificado es de esta clave?",
+    b: P("Compara la clave pública del certificado con la privada. Así detecta si pegaste el certificado de otro alias."),
+    r: "setup_wizard.py:305 · certificates.py:74" },
+  { f: "setup", t: "disk", k: "call", l: "<alias>.crt", h: "Guardar el certificado",
+    b: P("Con <code>.key</code> y <code>.crt</code> en <code>certs/&lt;amb&gt;/</code>, <code>WSAA.from_alias(\"miapp\", env)</code> ya los encuentra.") + P("<code>certs/</code> nunca se commitea."),
+    r: "certificates.py:95 (certificate_paths)" },
+];
+
+const certTail = (auth) => [
+  auth,
+  { f: "setup", t: "wsaa", k: "call", l: 'get_ticket("wsfe")', h: "Probar el login",
+    b: P("<code>try_login</code> pide el primer TA. Si sale bien, queda en el caché por 12 h.") + P("Si recién creaste la autorización, a veces hay que esperar unos minutos."),
+    r: "setup_wizard.py:324" },
+  { f: "wsaa", t: "setup", k: "ok", l: "TA ok", h: "Listo",
+    b: P("El asistente muestra un resumen con las rutas y el comando para probar <code>examples/login.py</code>."),
+    r: "setup_wizard.py:350 (summary)" },
+];
+
+const certHomo = [
+  ...certCommon([
+    { f: "setup", t: "web", k: "call", l: "pegá el CSR", h: "WSASS: nuevo certificado",
+      b: P("En «WSASS - Autogestión Certificados Homologación» → «Nuevo Certificado»: nombre = alias, y pegás el CSR completo.") + P("WSASS no es delegable: entrás con la clave fiscal de la persona física."),
+      r: "setup_wizard.py:216 (guide_homologacion)" },
+    { f: "web", t: "setup", k: "ret", l: "pegás el .crt", h: "ARCA firma y te da el certificado",
+      b: P("Aparece debajo como <code>-----BEGIN CERTIFICATE-----</code>. Lo copiás y lo pegás en la terminal."),
+      r: "setup_wizard.py:287" },
+  ]),
+  ...certTail({ f: "web", t: "web", k: "self", l: "autorizar a wsfe", h: "Autorizar el servicio",
+    b: P("WSASS → «Crear autorización a servicio»: alias, CUIT representado y servicio (<code>wsfe</code>, <code>wscdc</code>…). Sin esto, el WSAA rechaza el login aunque el certificado sea válido."),
+    r: "setup_wizard.py:242" }),
+];
+
+const certProd = [
+  ...certCommon([
+    { f: "setup", t: "web", k: "call", l: "subí el .csr", h: "Administración de Certificados Digitales",
+      b: P("«Agregar alias»: escribís el alias y subís el archivo <code>.csr</code>.") + P("Si no ves el servicio en el escritorio, primero se adhiere desde «Administrador de Relaciones»."),
+      r: "setup_wizard.py:254 (guide_produccion)" },
+    { f: "web", t: "setup", k: "ret", l: "descargás el .crt", h: "ARCA firma el certificado",
+      b: P("En la lista de alias: «Ver» → «Descargar». Pegás el contenido o la ruta del archivo."),
+      r: "setup_wizard.py:287" },
+  ]),
+  ...certTail({ f: "web", t: "web", k: "self", l: "nueva relación", h: "Autorizar el servicio",
+    b: P("«Administrador de Relaciones de Clave Fiscal» → «Nueva Relación» → ARCA › Web Services → el servicio, y elegís el certificado como representante."),
+    r: "setup_wizard.py:273" }),
+];
+
+const SEQS = {
+  auth: { lanes: LANES.auth, scenarios: [
+    { name: "TA nuevo", msgs: authMiss, cap: "Primera vez del día, o TA vencido: se firma un TRA y se llama a LoginCms. Todo pasa con el lock tomado, para que un solo proceso hable con ARCA." },
+    { name: "TA en caché", msgs: authHit, cap: "El caso normal: el ticket guardado sigue vigente y no se toca la red." },
+    { name: "coe.alreadyAuthenticated", msgs: authAlready, cap: "El caso que hay que evitar: ARCA tiene un TA vigente que no está en tu caché." },
+  ]},
+  wsfe: { lanes: LANES.wsfe, scenarios: [
+    { name: "Camino feliz", msgs: wsfeHappy, cap: "Consultar el último número, pedir el siguiente y recibir el CAE." },
+    { name: "Rechazo 10016", msgs: wsfeRace, cap: "Otro proceso emitió en el medio. Como ARCA rechazó explícitamente, reintentar con el número siguiente es seguro." },
+    { name: "Corte de red", msgs: wsfeCut, cap: "La respuesta nunca llegó. En lugar de reintentar, se consulta ese número exacto para saber si se emitió." },
+  ]},
+  cert: { lanes: LANES.cert, scenarios: [
+    { name: "Homologación (WSASS)", msgs: certHomo, cap: "La clave queda en tu disco. Solo el CSR va al sitio de ARCA y vuelve el certificado." },
+    { name: "Producción", msgs: certProd, cap: "Mismo flujo local; cambian las pantallas del sitio de ARCA." },
+  ]},
+};
+
+const NS = "http://www.w3.org/2000/svg";
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function buildSvg(id, lanes, msgs) {
+  const LW = 200, PADX = 10, headY = 8, headH = 48, rowH = 46;
+  const y0 = headY + headH + 34;
+  const W = PADX * 2 + LW * lanes.length;
+  const H = y0 + rowH * (msgs.length - 1) + 34;
+  const idx = Object.fromEntries(lanes.map((l, i) => [l.id, i]));
+  const cx = (i) => PADX + LW * i + LW / 2;
+  const mk = (n, cls) => `<marker id="${id}-${n}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="${cls}"/></marker>`;
+  let s = `<defs>${mk("call", "fill-fg")}${mk("ret", "fill-muted")}${mk("err", "fill-danger")}${mk("ok", "fill-accent")}</defs>`;
+  lanes.forEach((l, i) => {
+    const x = cx(i);
+    s += `<line x1="${x}" y1="${headY + headH}" x2="${x}" y2="${H - 8}" class="lifeline"/>`;
+    s += `<rect x="${x - 86}" y="${headY}" width="172" height="${headH}" rx="8" class="${l.ext ? "lane-ext" : "lane-head"}"/>`;
+    s += `<text x="${x}" y="${headY + 21}" text-anchor="middle" class="t-title">${esc(l.label)}</text>`;
+    if (l.sub) s += `<text x="${x}" y="${headY + 38}" text-anchor="middle" class="t-sub">${esc(l.sub)}</text>`;
+  });
+  msgs.forEach((m, i) => {
+    const y = y0 + i * rowH;
+    const a = idx[m.f], b = idx[m.t];
+    const xa = cx(a), xb = cx(b);
+    const lineCls = { call: "m-call", ret: "m-ret", err: "m-err", ok: "m-ok" }[m.k] || "m-call";
+    const mark = m.k === "self" ? "call" : (m.k === "ok" ? "ok" : m.k);
+    const lblCls = { err: "lbl-err", ok: "lbl-ok", ret: "lbl-ret" }[m.k] || "";
+    s += `<g class="row" data-i="${i}" tabindex="0" role="button" aria-label="Paso ${i + 1}: ${esc(m.h)}">`;
+    s += `<rect class="hit" x="2" y="${y - rowH / 2 + 2}" width="${W - 4}" height="${rowH - 4}" rx="6"/>`;
+    if (m.k === "self") {
+      const left = a === lanes.length - 1;
+      const d = left ? -40 : 40;
+      s += `<path d="M${xa + (left ? -11 : 11)},${y - 7} H${xa + d} V${y + 9} H${xa + (left ? -12 : 12)}" class="m-call" marker-end="url(#${id}-call)"/>`;
+      s += `<text x="${xa + d + (left ? -8 : 8)}" y="${y + 5}" text-anchor="${left ? "end" : "start"}" class="t-lbl">${esc(m.l)}</text>`;
+    } else {
+      const dir = xb > xa ? 1 : -1;
+      s += `<line x1="${xa + dir * 11}" y1="${y}" x2="${xb - dir * 3}" y2="${y}" class="${lineCls}" marker-end="url(#${id}-${mark})"/>`;
+      s += `<text x="${(xa + xb) / 2 + dir * 6}" y="${y - 7}" text-anchor="middle" class="t-lbl ${lblCls}">${esc(m.l)}</text>`;
+    }
+    s += `<circle cx="${xa}" cy="${y}" r="10" class="num"/>`;
+    s += `<text x="${xa}" y="${y + 3.8}" text-anchor="middle" class="num-t">${i + 1}</text>`;
+    s += `</g>`;
+  });
+  return { svg: `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Diagrama de secuencia, ${msgs.length} pasos">${s}</svg>`, W };
+}
+
+function mountSeq(el) {
+  const key = el.dataset.seq;
+  const def = SEQS[key];
+  let sc = 0, sel = 0;
+  el.innerHTML = `
+    <figure style="gap:12px">
+      <div class="tabs" role="tablist" aria-label="Escenario">${def.scenarios.map((s, i) =>
+        `<button role="tab" id="tab-${key}-${i}" aria-selected="${i === 0}" data-sc="${i}">${esc(s.name)}</button>`).join("")}</div>
+      <div class="scroll"></div>
+      <figcaption></figcaption>
+    </figure>
+    <aside class="detail" aria-live="polite">
+      <div class="step"></div>
+      <h3></h3>
+      <div class="body"></div>
+      <div class="ref"></div>
+      <div class="nav"><button type="button" data-d="-1" id="prev-${key}">← Anterior</button><button type="button" data-d="1" id="next-${key}">Siguiente →</button></div>
+      <div class="hint">Clickeá cualquier flecha, o usá ← → con el diagrama enfocado.</div>
+    </aside>`;
+  const scroll = el.querySelector(".scroll");
+  const cap = el.querySelector("figcaption");
+  const det = el.querySelector(".detail");
+
+  function renderScenario() {
+    const s = def.scenarios[sc];
+    const { svg } = buildSvg(`${key}${sc}`, def.lanes, s.msgs);
+    scroll.innerHTML = svg;
+    cap.textContent = s.cap;
+    el.querySelectorAll(".tabs button").forEach((b, i) => b.setAttribute("aria-selected", i === sc));
+    scroll.querySelectorAll(".row").forEach((g) => {
+      g.addEventListener("click", () => select(+g.dataset.i));
+      g.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(+g.dataset.i); }
+        if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); select(sel + 1, true); }
+        if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); select(sel - 1, true); }
+      });
+    });
+    select(Math.min(sel, s.msgs.length - 1));
+  }
+
+  function select(i, focus) {
+    const msgs = def.scenarios[sc].msgs;
+    sel = Math.max(0, Math.min(msgs.length - 1, i));
+    const m = msgs[sel];
+    scroll.querySelectorAll(".row").forEach((g) => g.classList.toggle("sel", +g.dataset.i === sel));
+    if (focus) scroll.querySelector(`.row[data-i="${sel}"]`)?.focus();
+    det.querySelector(".step").textContent = `PASO ${sel + 1} DE ${msgs.length}`;
+    det.querySelector("h3").textContent = m.h;
+    det.querySelector(".body").innerHTML = m.b;
+    const ref = det.querySelector(".ref");
+    ref.textContent = m.r || "";
+    ref.hidden = !m.r;
+    det.querySelector('[data-d="-1"]').disabled = sel === 0;
+    det.querySelector('[data-d="1"]').disabled = sel === msgs.length - 1;
+  }
+
+  el.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
+    sc = +b.dataset.sc; sel = 0; renderScenario();
+  }));
+  det.querySelectorAll(".nav button").forEach((b) => b.addEventListener("click", () => select(sel + +b.dataset.d)));
+  renderScenario();
+}
+
+document.querySelectorAll("[data-seq]").forEach(mountSeq);
+</script>
+</body>
+</html>
