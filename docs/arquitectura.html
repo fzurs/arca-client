@@ -193,7 +193,7 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
     <nav class="toc" aria-label="Secciones">
       <a href="#mapa">Mapa de módulos</a>
       <a href="#auth">Autenticación (WSAA)</a>
-      <a href="#factura">Emitir una Factura C</a>
+      <a href="#factura">Emitir comprobantes</a>
       <a href="#despues">QR, PDF y verificación</a>
       <a href="#certificado">Certificado (arca-setup)</a>
       <a href="#errores">Errores</a>
@@ -219,7 +219,7 @@ factura.numero, factura.cae              <span class="c"># → <a href="#despues
     <div><dt>TA</dt><dd>Ticket de Acceso: <code>token</code> + <code>sign</code>. Vale 12 h y no se puede pedir otro mientras haya uno vigente.</dd></div>
     <div><dt>WSFEv1</dt><dd>Web service de factura electrónica. Autoriza comprobantes.</dd></div>
     <div><dt>CAE</dt><dd>Código de Autorización Electrónico: lo que hace válida a la factura.</dd></div>
-    <div><dt>CbteTipo 11</dt><dd>Factura C (monotributo). El número es correlativo por punto de venta y tipo.</dd></div>
+    <div><dt>CbteTipo</dt><dd>Tipo de comprobante: Factura, Nota de Crédito o de Débito en clase A, B o C (por ejemplo, 11 es Factura C). El número es correlativo por punto de venta y tipo.</dd></div>
     <div><dt>Homologación</dt><dd>Ambiente de prueba. Emite de verdad (consume numeración), pero sin validez fiscal.</dd></div>
   </dl>
 </section>
@@ -365,11 +365,22 @@ factura.numero, factura.cae              <span class="c"># → <a href="#despues
 <section id="factura" aria-labelledby="factura-h">
   <div class="sec-head">
     <span class="eyebrow">03 · Facturación</span>
-    <h2 id="factura-h">Cómo se emite una Factura C</h2>
-    <p>El número no lo elegís vos: se calcula como el último autorizado + 1. Por eso el riesgo principal no es un rechazo sino un corte de red justo después de enviar, cuando no se sabe si ARCA llegó a autorizar.</p>
+    <h2 id="factura-h">Cómo se emite un comprobante</h2>
+    <p><code>WSFE</code> autoriza facturas, notas de crédito y notas de débito de clase A, B y C. Los nueve métodos <code>create_*</code> cambian en cómo se informan los importes y el receptor, pero todos terminan en el mismo <code>_create</code> → <code>_emitir</code>, así que la numeración, el pedido del CAE y el manejo de cortes son idénticos.</p>
   </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Clase</th><th>Factura</th><th>Notas de crédito / débito</th><th>Importes y receptor</th></tr></thead>
+      <tbody>
+        <tr><td>A (1, 3, 2)</td><td><code>create_invoice_a</code></td><td><code>create_credit_note_a</code> · <code>create_debit_note_a</code></td><td>Neto por alícuota, el IVA se discrimina. Receptor siempre con CUIT y condición de IVA válida para A.</td></tr>
+        <tr><td>B (6, 8, 7)</td><td><code>create_invoice_b</code></td><td><code>create_credit_note_b</code> · <code>create_debit_note_b</code></td><td>Neto por alícuota, como en A. Consumidor final sin identificar por defecto.</td></tr>
+        <tr><td>C (11, 13, 12)</td><td><code>create_invoice_c</code></td><td><code>create_credit_note_c</code> · <code>create_debit_note_c</code></td><td>Solo <code>importe_total</code>: en C no se discrimina IVA. Monotributo.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Las notas reciben además el comprobante que corrigen (<code>asociado</code>, de la misma letra) o un <code>periodo</code>. El número no lo elegís vos: se calcula como el último autorizado + 1 para ese punto de venta y tipo. Por eso el riesgo principal no es un rechazo sino un corte de red justo después de enviar, cuando no se sabe si ARCA llegó a autorizar. El diagrama sigue una Factura C; para las demás solo cambian el tipo y la validación previa.</p>
   <div class="seq" data-seq="wsfe"></div>
-  <p class="callout danger"><strong>Nunca reintentes <code>create_invoice_c</code> a ciegas.</strong> Vuelve a calcular el número y, si el primer intento sí se autorizó, emitís dos facturas. El paquete ya verifica con <code>FECompConsultar</code> y te dice en <code>safe_to_retry</code> si podés reintentar.</p>
+  <p class="callout danger"><strong>Nunca reintentes un <code>create_*</code> a ciegas.</strong> Vuelve a calcular el número y, si el primer intento sí se autorizó, emitís dos facturas. El paquete ya verifica con <code>FECompConsultar</code> y te dice en <code>safe_to_retry</code> si podés reintentar.</p>
 </section>
 
 <section id="despues" aria-labelledby="despues-h">

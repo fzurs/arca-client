@@ -1,6 +1,7 @@
 # arca-client
 
-Cliente Python para los web services SOAP de ARCA (ex AFIP): WSAA (autenticación) y WSFEv1 (Factura C).
+Cliente Python para los web services SOAP de ARCA (ex AFIP): WSAA (autenticación), WSFEv1 (Factura,
+Nota de Crédito y Nota de Débito A, B y C), WSCDC (constatación) y WSPCI (constancia de inscripción).
 Código, docstrings, mensajes y README en español.
 
 ## Comandos

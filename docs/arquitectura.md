@@ -25,7 +25,7 @@ que pide el ticket si hace falta.
 | TA | Ticket de Acceso: `token` + `sign`. Vale 12 h y no se puede pedir otro mientras haya uno vigente. |
 | WSFEv1 | Web service de factura electrónica. Autoriza comprobantes. |
 | CAE | Código de Autorización Electrónico: lo que hace válida a la factura. |
-| CbteTipo 11 | Factura C. El número es correlativo por punto de venta y tipo. |
+| CbteTipo | Tipo de comprobante: Factura, Nota de Crédito o de Débito en clase A, B o C (11 es Factura C). El número es correlativo por punto de venta y tipo. |
 | Homologación | Ambiente de prueba. Emite de verdad (consume numeración), pero sin validez fiscal. |
 
 ## Mapa de módulos
@@ -107,7 +107,21 @@ sequenceDiagram
 Por el caso `coe.alreadyAuthenticated`, no hay que borrar `~/.cache/arca-client/tickets/` ni usar
 `force=True`. Desde la caché se exige que la carpeta sea privada (0700 y del usuario actual).
 
-## Emisión de una Factura C (WSFEv1)
+## Emisión de comprobantes (WSFEv1)
+
+`WSFE` autoriza facturas, notas de crédito y notas de débito de clase A, B y C. Los nueve métodos
+`create_*` cambian en cómo se informan los importes y el receptor, pero todos terminan en el mismo
+`_create` → `_emitir`: la numeración, el pedido del CAE y el manejo de cortes son idénticos.
+
+| Clase | Factura | Notas de crédito / débito | Importes y receptor |
+|---|---|---|---|
+| A (1, 3, 2) | `create_invoice_a` | `create_credit_note_a` · `create_debit_note_a` | Neto por alícuota, IVA discriminado. Receptor siempre con CUIT y condición de IVA válida para A. |
+| B (6, 8, 7) | `create_invoice_b` | `create_credit_note_b` · `create_debit_note_b` | Neto por alícuota, como en A. Consumidor final sin identificar por defecto. |
+| C (11, 13, 12) | `create_invoice_c` | `create_credit_note_c` · `create_debit_note_c` | Solo `importe_total`: en C no se discrimina IVA. Monotributo. |
+
+Las notas reciben además el comprobante que corrigen (`asociado`, de la misma letra) o un
+`periodo`. El diagrama sigue una Factura C; para las demás solo cambian el tipo y la validación
+previa.
 
 El número no lo elegís vos: se calcula como el último autorizado + 1 (`_emitir`,
 `wsfe/client.py:608`). Por eso el riesgo principal no es un rechazo sino un corte justo después de
@@ -150,7 +164,7 @@ sequenceDiagram
     end
 ```
 
-**Nunca reintentar `create_invoice_c` a ciegas.** Vuelve a calcular el número y, si el primer
+**Nunca reintentar un `create_*` a ciegas.** Vuelve a calcular el número y, si el primer
 intento sí se autorizó, se emiten dos facturas. Los nombres de los campos salen del WSDL
 (`tests/fixtures/wsfev1.wsdl`), no del manual.
 
